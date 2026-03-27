@@ -1,0 +1,44 @@
+# 抖音发布助手 (DouyinUploader)
+
+## 开发流程（重要）
+
+每次修改代码后，Claude 必须自动执行以下命令，在 Xcode 中触发 ⌘R 构建并运行：
+
+```bash
+osascript -e 'tell application "Xcode" to activate' -e 'delay 0.5' -e 'tell application "System Events" to tell process "Xcode" to keystroke "." using command down' -e 'delay 1' -e 'tell application "System Events" to tell process "Xcode" to keystroke "r" using command down'
+```
+
+这条命令会：激活 Xcode → ⌘. 停止旧进程 → ⌘R 构建并运行。用户不需要做任何操作。
+
+## 测试
+
+```bash
+cd /Users/menggang/www/douyin_upload/DouyinUploader
+swift test
+```
+
+## 用 Xcode 打开（仅浏览代码/调试）
+
+```bash
+open -a Xcode /Users/menggang/www/douyin_upload/DouyinUploader/Package.swift
+```
+
+## 技术约束
+
+- Swift 5.9+ / SwiftUI，macOS 13.0+ (Ventura)
+- Universal Binary (Intel + M 系列)
+- **零第三方依赖**，全部使用系统框架
+- 不上架 App Store，不开启 Sandbox
+- App 入口使用 NSApplication 手动启动（非 SwiftUI @main，因为 SPM executableTarget 不支持）
+- 敏感数据存 `~/Library/Application Support/com.menggang.douyin-uploader/secrets/`（本地文件，不用系统 Keychain，避免弹密码框）
+
+## 飞书表格列名（10 列必须 + 1 列可选 = 共 11 列）
+
+抖音账号 | 抖音名称(可选) | 作品素材 | 作品标题 | 作品文案 | 话题标签 | 音乐名称 | 发布状态 | 发布时间 | 定时发布时间 | 失败原因
+
+## 相关文档
+
+- `docs/PRD.md` — 产品需求文档 (v1.7)
+- `docs/TECH_RESEARCH.md` — 技术调研报告
+- `docs/TEST_SCENARIOS.md` — 测试场景清单
+- `docs/SPIKE_RESULTS.md` — Spike Test 验证结果（待填写）

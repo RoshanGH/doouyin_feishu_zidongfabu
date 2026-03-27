@@ -1,0 +1,48 @@
+# Swift / Xcode 构建产物
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+DerivedData/
+*.dSYM
+*.dSYM.zip
+*.ipa
+*.xcarchive
+
+# macOS 系统文件
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# 抖音页面源码（调试用，体积大，不纳入版本管理）
+*页面源码*.html
+*主页.html
+*设置页面*.html
+*音乐页面*.html
+创造者中心*.html
+
+# 运行时数据（敏感）
+secrets/
+*.keychain
+*.keychain-db
+
+# Claude Code
+.claude/
+
+# Chrome for Testing（运行时自动下载，存于 Application Support，不在项目中）
+# 注意：不能用 chrome/ 会误匹配 Sources/Services/Chrome/
+
+# 临时文件
+*.tmp
+*.log
+douyin_merged/

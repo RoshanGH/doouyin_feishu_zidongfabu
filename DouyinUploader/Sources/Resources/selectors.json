@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "common": {
+    "upload_page_url": "https://creator.douyin.com/creator-micro/content/upload",
+    "publish_button": "button[class*='primary']",
+    "publish_button_text": "发布",
+    "description_editor": ".zone-container",
+    "schedule_radio": "[class^='radio']",
+    "schedule_radio_text": "定时发布",
+    "schedule_input": ".semi-input"
+  },
+  "video_upload": {
+    "file_input": "div[class^='container'] input",
+    "upload_complete_marker": "[class^='long-card']",
+    "upload_complete_text": "重新上传",
+    "upload_progress": "[class*='progress']"
+  },
+  "image_upload": {
+    "mode_switch_text": "发布图文",
+    "file_input": "div[class^='container'] input[accept*='image']",
+    "file_input_fallback": "div[class^='container'] input",
+    "title_input": "input[placeholder*='标题']",
+    "upload_item": "[class*='upload-item']",
+    "upload_complete_text": "添加图片"
+  },
+  "music": {
+    "video_entry_text": "添加音乐",
+    "image_entry_text": "选择音乐",
+    "search_input": "input[placeholder='搜索音乐']",
+    "use_button": "button[class*='apply-btn-']",
+    "panel_container": "[class*='music-binder-container-']",
+    "search_timeout_ms": 5000,
+    "use_button_wait_ms": 3000
+  },
+  "success_keywords": ["发布成功", "已发布", "内容已提交"],
+  "failure_keywords": ["发布失败", "上传失败", "提交失败"]
+}
