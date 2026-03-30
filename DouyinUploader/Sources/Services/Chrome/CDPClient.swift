@@ -154,6 +154,15 @@ final class CDPClient: NSObject, URLSessionWebSocketDelegate, @unchecked Sendabl
         return try await evaluate("window.location.href") as? String ?? ""
     }
 
+    /// 获取指定域名的所有 Cookie
+    func getCookies(domain: String) async throws -> [[String: Any]] {
+        let result = try await send("Network.getCookies", params: ["urls": ["https://\(domain)"]])
+        if let cookies = (result["result"] as? [String: Any])?["cookies"] as? [[String: Any]] {
+            return cookies
+        }
+        return []
+    }
+
     func waitForURL(containing text: String, timeout: TimeInterval = 60) async throws {
         let start = Date()
         while Date().timeIntervalSince(start) < timeout {

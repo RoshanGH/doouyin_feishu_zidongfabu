@@ -347,14 +347,116 @@ final class DouyinLoginService {
         let cookieManager = DouyinCookieManager()
         guard let cookies = try? cookieManager.loadCookies(uniqueId: uniqueId),
               !cookies.isEmpty else {
+            writeDebugLog("[CookieCheck] \(uniqueId): 本地无 Cookie 文件")
             return false
         }
 
-        do {
-            let _ = try await fetchUserInfo(cookies: cookies)
-            return true
-        } catch {
+        guard let url = URL(string: API.userInfoURL) else { return false }
+
+        let cookieHeader = cookies
+            .map { "\($0.name)=\($0.value)" }
+            .joined(separator: "; ")
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        request.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue("https://creator.douyin.com", forHTTPHeaderField: "Referer")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let httpResponse = response as? HTTPURLResponse else {
+            writeDebugLog("[CookieCheck] \(uniqueId): 请求失败或超时")
             return false
+        }
+
+        let rawBody = String(data: data, encoding: .utf8) ?? "无法解码"
+        writeDebugLog("[CookieCheck] \(uniqueId): HTTP \(httpResponse.statusCode), Cookie数量=\(cookies.count), 返回内容=\(String(rawBody.prefix(1000)))")
+
+        guard httpResponse.statusCode == 200 else {
+            writeDebugLog("[CookieCheck] \(uniqueId): ❌ 非200状态码")
+            return false
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            writeDebugLog("[CookieCheck] \(uniqueId): ❌ JSON 解析失败")
+            return false
+        }
+
+        // 记录顶层 keys
+        writeDebugLog("[CookieCheck] \(uniqueId): 顶层keys=\(Array(json.keys))")
+
+        // 检查 status_code
+        if let statusCode = json["status_code"] as? Int {
+            writeDebugLog("[CookieCheck] \(uniqueId): status_code=\(statusCode)")
+            if statusCode != 0 {
+                writeDebugLog("[CookieCheck] \(uniqueId): ❌ status_code 非0，判定为过期")
+                return false
+            }
+        }
+
+        // 路径1: data.user.unique_id
+        if let dataDict = json["data"] as? [String: Any] {
+            writeDebugLog("[CookieCheck] \(uniqueId): data.keys=\(Array(dataDict.keys))")
+            if let user = dataDict["user"] as? [String: Any] {
+                writeDebugLog("[CookieCheck] \(uniqueId): data.user.keys=\(Array(user.keys))")
+                if let uid = user["unique_id"] as? String, !uid.isEmpty {
+                    writeDebugLog("[CookieCheck] \(uniqueId): ✅ unique_id=\(uid)")
+                    return true
+                }
+            }
+        }
+
+        // 路径2: user（顶层）
+        if let user = json["user"] as? [String: Any] {
+            writeDebugLog("[CookieCheck] \(uniqueId): 顶层 user.keys=\(Array(user.keys))")
+            // 抖音接口 user 中可能用 unique_id、uid、short_id 等不同字段名
+            let uid = user["unique_id"] as? String
+                ?? user["uid"] as? String
+                ?? user["short_id"] as? String
+            if let uid, !uid.isEmpty {
+                writeDebugLog("[CookieCheck] \(uniqueId): ✅ 顶层 user id=\(uid)")
+                return true
+            }
+            // user 对象存在且非空，说明登录有效（有些账号可能没设置 unique_id）
+            if !user.isEmpty {
+                writeDebugLog("[CookieCheck] \(uniqueId): ✅ 顶层 user 非空，视为有效")
+                return true
+            }
+        }
+
+        // 路径3: data 非空
+        if let dataDict = json["data"] as? [String: Any], !dataDict.isEmpty {
+            writeDebugLog("[CookieCheck] \(uniqueId): ✅ data 非空，视为有效")
+            return true
+        }
+
+        writeDebugLog("[CookieCheck] \(uniqueId): ❌ 未找到有效用户信息")
+        return false
+    }
+
+    /// 写调试日志到文件
+    private func writeDebugLog(_ message: String) {
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? fallback
+        let logDir = appSupport.appendingPathComponent("com.menggang.douyin-uploader/debug-logs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+
+        let logFile = logDir.appendingPathComponent("cookie_check.log")
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+
+        if let handle = try? FileHandle(forWritingTo: logFile) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8) ?? Data())
+            handle.closeFile()
+        } else {
+            try? line.data(using: .utf8)?.write(to: logFile)
         }
     }
 }

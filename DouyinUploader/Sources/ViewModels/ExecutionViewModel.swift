@@ -220,6 +220,9 @@ final class ExecutionViewModel: ObservableObject {
     /// Cookie 已过期的抖音号集合
     @Published var expiredAccounts: Set<String> = []
 
+    /// 账号 ID → 昵称 映射
+    @Published var accountNicknames: [String: String] = [:]
+
     // MARK: - 可用配置列表
 
     /// 所有飞书配置（供 Picker 使用）
@@ -382,47 +385,36 @@ final class ExecutionViewModel: ObservableObject {
 
     // MARK: - 账号登录状态检测
 
-    /// 检测所有涉及账号的 Cookie 有效性
+    /// 检测所有涉及账号的 Cookie 有效性（请求抖音接口验证，和账号管理页逻辑一致）
     private func checkAccountLoginStatus(for tasks: [PublishTask]) async {
         let accountIds = Array(Set(tasks.map { $0.douyinAccountId })).sorted()
         requiredAccounts = accountIds
 
+        // 从任务中提取账号昵称
+        var nicknames: [String: String] = [:]
+        for task in tasks {
+            if let name = task.douyinName, !name.isEmpty {
+                nicknames[task.douyinAccountId] = name
+            }
+        }
+        accountNicknames = nicknames
+
+        let loginService = DouyinLoginService()
         var loggedIn: Set<String> = []
         var expired: Set<String> = []
 
+        addLog(level: .info, message: "正在验证账号登录状态...")
+
         for accountId in accountIds {
-            do {
-                if let cookies = try cookieManager.loadCookies(uniqueId: accountId),
-                   !cookies.isEmpty {
-                    addLog(level: .info, message: "  账号 \(accountId): 找到 \(cookies.count) 个 Cookie")
-                    // 检查是否有任何 Cookie 已过期
-                    let expiredCookies = cookies.filter { cookie in
-                        if let expiresDate = cookie.expiresDate {
-                            return expiresDate < Date()
-                        }
-                        return false
-                    }
-                    if expiredCookies.isEmpty {
-                        loggedIn.insert(accountId)
-                        addLog(level: .info, message: "  账号 \(accountId): ✅ Cookie 有效")
-                    } else {
-                        // 有部分 Cookie 过期不代表全部失效，只要核心 Cookie 在就算登录
-                        let hasSessionId = cookies.contains { $0.name == "sessionid" || $0.name == "sessionid_ss" }
-                        if hasSessionId {
-                            loggedIn.insert(accountId)
-                            addLog(level: .info, message: "  账号 \(accountId): ✅ sessionid 存在（\(expiredCookies.count) 个次要 Cookie 过期）")
-                        } else {
-                            expired.insert(accountId)
-                            addLog(level: .warning, message: "  账号 \(accountId): ❌ Cookie 已过期")
-                        }
-                    }
-                } else {
-                    expired.insert(accountId)
-                    addLog(level: .warning, message: "  账号 \(accountId): ❌ 未找到 Cookie")
-                }
-            } catch {
+            let nickname = nicknames[accountId] ?? accountId
+            addLog(level: .info, message: "  检测账号 \(nickname)...")
+            let isValid = await loginService.validateCookies(uniqueId: accountId)
+            if isValid {
+                loggedIn.insert(accountId)
+                addLog(level: .info, message: "  账号 \(nickname): ✅ 登录有效")
+            } else {
                 expired.insert(accountId)
-                addLog(level: .warning, message: "  账号 \(accountId): ❌ 加载 Cookie 失败: \(error.localizedDescription)")
+                addLog(level: .warning, message: "  账号 \(nickname): ❌ 登录已过期，请重新扫码")
             }
         }
 
@@ -642,6 +634,7 @@ final class ExecutionViewModel: ObservableObject {
         requiredAccounts = []
         loggedInAccounts = []
         expiredAccounts = []
+        accountNicknames = [:]
     }
 
     // MARK: - 内部：执行单条任务

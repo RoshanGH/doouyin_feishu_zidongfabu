@@ -16,6 +16,7 @@ struct SettingsView: View {
             systemSection
             advancedSection
             otherSection
+            aboutSection
         }
         .formStyle(.grouped)
         .navigationTitle("设置")
@@ -218,6 +219,27 @@ struct SettingsView: View {
                 settingsManager.saveSettings()
             }
             .foregroundColor(.accentColor)
+        }
+    }
+
+    // MARK: - 关于
+
+    private var aboutSection: some View {
+        Section("关于") {
+            HStack {
+                Text("作者联系方式")
+                Spacer()
+                Text("微信：13462890087")
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack {
+                Text("版本")
+                Spacer()
+                Text("v1.2.1")
+                    .foregroundColor(.secondary)
+            }
         }
     }
 

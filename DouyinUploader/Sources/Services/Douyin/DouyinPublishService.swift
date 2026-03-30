@@ -14,12 +14,15 @@ enum DouyinPublishError: LocalizedError {
     case localFileMissing(URL)
     case webViewError(String)
     case scheduleExpired
+    case cookieExpired(accountId: String)
     case unknownError(String)
 
     var errorDescription: String? {
         switch self {
         case .noCookiesFound(let id):
             return "账号 \(id) 未登录或 Cookie 已失效"
+        case .cookieExpired(let id):
+            return "账号 \(id) 登录已过期，请重新扫码登录"
         case .invalidTaskMedia:
             return "任务媒体类型无效，无法发布"
         case .uploadTimeout:

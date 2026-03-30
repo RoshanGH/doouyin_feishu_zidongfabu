@@ -67,6 +67,18 @@ struct AccountListView: View {
 
             Spacer()
 
+            Button(action: { viewModel.refreshLoginStatus() }) {
+                Label(
+                    viewModel.isValidating ? "检测中..." : "检查登录状态",
+                    systemImage: "checkmark.shield"
+                )
+                .font(.body)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(viewModel.isValidating || viewModel.accounts.isEmpty)
+            .help("检测所有账号的 Cookie 是否仍有效")
+
             Button(action: { viewModel.startLogin() }) {
                 Label("添加账号", systemImage: "plus")
                     .font(.body)

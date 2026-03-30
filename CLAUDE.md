@@ -91,9 +91,24 @@ hdiutil create -volname "抖音发布助手" -srcfolder /tmp/dmg_staging -ov -fo
 | 端口 9222 冲突 | 硬编码端口 | 已改为动态查找可用端口 |
 | force unwrap 闪退 | `.first!`、`URL()!` | 全部改为安全解包 |
 
+## 调试日志
+
+Cookie 登录状态检测会写调试日志到文件，方便排查问题：
+
+```
+~/Library/Application Support/com.menggang.douyin-uploader/debug-logs/cookie_check.log
+```
+
+查看日志：
+```bash
+cat ~/Library/Application\ Support/com.menggang.douyin-uploader/debug-logs/cookie_check.log
+```
+
+日志内容包括：HTTP 状态码、Cookie 数量、抖音接口返回的完整 JSON（前1000字符）、判定路径和结果。
+
 ## 相关文档
 
-- `docs/PRD.md` — 产品需求文档 (v1.7)
+- `docs/PRD.md` — 产品需求文档 (v1.8)
 - `docs/TECH_RESEARCH.md` — 技术调研报告
 - `docs/TEST_SCENARIOS.md` — 测试场景清单
 - `docs/SPIKE_RESULTS.md` — Spike Test 验证结果（待填写）

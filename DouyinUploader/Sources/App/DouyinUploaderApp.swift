@@ -17,7 +17,7 @@ enum AppEntry {
 // MARK: - AppDelegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-
+ 
     private var window: NSWindow?
     private let settingsManagerStore = SettingsManagerStore()
     private let networkMonitor = NetworkMonitor()

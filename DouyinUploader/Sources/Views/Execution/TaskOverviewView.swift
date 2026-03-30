@@ -94,6 +94,7 @@ struct TaskOverviewView: View {
                 ForEach(viewModel.requiredAccounts, id: \.self) { accountId in
                     AccountStatusRow(
                         accountId: accountId,
+                        nickname: viewModel.accountNicknames[accountId],
                         isLoggedIn: viewModel.loggedInAccounts.contains(accountId),
                         isExpired: viewModel.expiredAccounts.contains(accountId)
                     )
@@ -186,6 +187,7 @@ private struct StatBadge: View {
 /// 单个账号的登录状态展示行
 private struct AccountStatusRow: View {
     let accountId: String
+    let nickname: String?
     let isLoggedIn: Bool
     let isExpired: Bool
 
@@ -196,10 +198,19 @@ private struct AccountStatusRow: View {
                 .foregroundColor(isLoggedIn ? .green : .red)
                 .font(.body)
 
-            // 账号 ID
-            Text(accountId)
-                .font(.callout)
-                .lineLimit(1)
+            // 昵称 + 账号 ID
+            VStack(alignment: .leading, spacing: 2) {
+                if let nickname, !nickname.isEmpty {
+                    Text(nickname)
+                        .font(.callout)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                }
+                Text(accountId)
+                    .font(nickname != nil ? .caption : .callout)
+                    .foregroundColor(nickname != nil ? .secondary : .primary)
+                    .lineLimit(1)
+            }
 
             Spacer()
 

@@ -13,7 +13,8 @@ final class MusicDownloader {
     ///   - cdp: 已连接的 CDP 客户端
     ///   - musicName: 搜索关键字
     /// - Returns: 下载到本地的音乐文件 URL，失败返回 nil
-    func downloadMusic(cdp: CDPClient, musicName: String) async -> URL? {
+    /// - Throws: DouyinPublishError.cookieExpired 如果登录过期
+    func downloadMusic(cdp: CDPClient, musicName: String) async throws -> URL? {
         log(.info, "开始获取音乐: \(musicName)")
 
         // 1. 打开文章发布页（有"选择音乐"按钮）
@@ -25,6 +26,9 @@ final class MusicDownloader {
             return nil
         }
         try? await Task.sleep(nanoseconds: stepDelay * 2)
+
+        // 检测登录是否过期（导航后可能跳转到登录页）
+        try await checkLoginExpired(cdp: cdp)
 
         // 2. 启用网络拦截（捕获音频文件URL）
         // 实际音频URL在 douyinstatic.com/obj/tos-cn-ve- 域名下，没有文件后缀
@@ -268,6 +272,25 @@ final class MusicDownloader {
         } catch {
             log(.error, "音乐写入失败: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    /// 检测登录是否过期（页面跳转到登录页）
+    private func checkLoginExpired(cdp: CDPClient) async throws {
+        let url = try await cdp.getCurrentURL()
+        let isLoginPage = url.contains("sso.douyin.com")
+            || url.contains("/login")
+            || url.contains("passport")
+
+        let hasLoginPrompt = (try? await cdp.evaluate("""
+            (function() {
+                var t = document.body ? document.body.innerText : '';
+                return t.indexOf('扫码登录') !== -1 || t.indexOf('手机号登录') !== -1 || t.indexOf('请登录') !== -1;
+            })()
+        """) as? Bool) ?? false
+
+        if isLoginPage || hasLoginPrompt {
+            throw DouyinPublishError.cookieExpired(accountId: "")
         }
     }
 

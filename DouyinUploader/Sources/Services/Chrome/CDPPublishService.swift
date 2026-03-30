@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import UserNotifications
 
 /// 基于 Chrome CDP 协议的抖音发布服务
 final class CDPPublishService {
@@ -70,44 +72,32 @@ final class CDPPublishService {
         for (index, task) in tasks.enumerated() {
             log(.info, "[\(index + 1)/\(tasks.count)] 开始发布: \(task.displayName)")
 
-            // 下载素材
-            var localFiles: [URL]
             do {
-                localFiles = try await downloadFiles(task)
-            } catch {
-                log(.error, "下载素材失败: \(error.localizedDescription)")
-                await onTaskResult(task, .failure(error))
-                continue
-            }
+                // 下载素材
+                var localFiles: [URL] = try await downloadFiles(task)
 
-            // 如果是视频任务且有音乐，先下载音乐并合并
-            if task.isVideo && task.hasMusic, let musicName = task.musicName, let videoFile = localFiles.first {
-                log(.info, "--- 音乐融合流程 ---")
+                // 如果是视频任务且有音乐，先下载音乐并合并
+                if task.isVideo && task.hasMusic, let musicName = task.musicName, let videoFile = localFiles.first {
+                    log(.info, "--- 音乐融合流程 ---")
 
-                // 下载音乐
-                guard let musicFile = await musicDownloader.downloadMusic(cdp: cdp, musicName: musicName) else {
-                    log(.error, "音乐下载失败，跳过此任务")
-                    await onTaskResult(task, .failure(DouyinPublishError.publishFailed("音乐下载失败：\(musicName)")))
-                    continue
+                    // 下载音乐（可能抛 cookieExpired）
+                    if let musicFile = try await musicDownloader.downloadMusic(cdp: cdp, musicName: musicName) {
+                        do {
+                            let mergedVideo = try await merger.merge(videoURL: videoFile, musicURL: musicFile)
+                            localFiles = [mergedVideo]
+                            log(.info, "音乐融合完成，将使用合并视频上传")
+                        } catch {
+                            log(.error, "音视频合并失败: \(error.localizedDescription)")
+                        }
+                        try? FileManager.default.removeItem(at: musicFile)
+                    } else {
+                        log(.warning, "音乐下载失败，使用原始视频继续发布")
+                    }
+
+                    log(.info, "--- 音乐融合流程结束 ---")
                 }
 
-                // 合并音视频
-                do {
-                    let mergedVideo = try await merger.merge(videoURL: videoFile, musicURL: musicFile)
-                    localFiles = [mergedVideo]
-                    log(.info, "音乐融合完成，将使用合并视频上传")
-                } catch {
-                    log(.error, "音视频合并失败: \(error.localizedDescription)")
-                    try? FileManager.default.removeItem(at: musicFile)
-                    await onTaskResult(task, .failure(DouyinPublishError.publishFailed("音视频合并失败：\(error.localizedDescription)")))
-                    continue
-                }
-                try? FileManager.default.removeItem(at: musicFile)
-
-                log(.info, "--- 音乐融合流程结束 ---")
-            }
-
-            do {
+                // 发布
                 let result: PublishResult
                 if task.isVideo {
                     result = try await publishVideo(cdp: cdp, task: task, localFiles: localFiles)
@@ -119,6 +109,15 @@ final class CDPPublishService {
                 await onTaskResult(task, .success(result))
             } catch {
                 await onTaskResult(task, .failure(error))
+
+                // 登录过期：跳过该账号所有剩余任务
+                if let pubError = error as? DouyinPublishError, isCookieExpiredError(pubError) {
+                    log(.error, "⚠️ 账号 \(accountId) 登录已过期，跳过该账号所有剩余任务")
+                    for remainingTask in tasks.suffix(from: index + 1) {
+                        await onTaskResult(remainingTask, .failure(DouyinPublishError.cookieExpired(accountId: accountId)))
+                    }
+                    return
+                }
             }
 
             // 任务间等待
@@ -187,28 +186,122 @@ final class CDPPublishService {
         try await cdp.setCookies(list)
     }
 
-    // MARK: - 验证码检测
+    // MARK: - 登录过期检测
 
-    private func checkVerification(cdp: CDPClient) async throws {
-        let hasV = try await cdp.evaluate("""
+    private func isCookieExpiredError(_ error: DouyinPublishError) -> Bool {
+        if case .cookieExpired = error { return true }
+        if case .noCookiesFound = error { return true }
+        return false
+    }
+
+    /// 检测页面是否跳转到了登录页（Cookie 过期）
+    /// 过期时直接抛错，由 publishBatch 跳过该账号的所有剩余任务
+    private func checkLoginStatus(cdp: CDPClient, accountId: String) async throws {
+        let currentURL = try await cdp.getCurrentURL()
+
+        let isLoginPage = currentURL.contains("sso.douyin.com")
+            || currentURL.contains("/login")
+            || currentURL.contains("passport")
+
+        let hasLoginPrompt = (try? await cdp.evaluate("""
             (function() {
                 var t = document.body ? document.body.innerText : '';
-                return t.indexOf('验证') !== -1 && (t.indexOf('滑动') !== -1 || t.indexOf('拼图') !== -1 || t.indexOf('验证码') !== -1);
+                return t.indexOf('扫码登录') !== -1 || t.indexOf('手机号登录') !== -1 || t.indexOf('请登录') !== -1;
             })()
-        """) as? Bool ?? false
+        """) as? Bool) ?? false
 
-        if hasV {
-            log(.warning, "检测到验证码，请在浏览器窗口中手动完成验证...")
-            for i in 0..<60 {
-                try await Task.sleep(nanoseconds: 2_000_000_000)
-                let still = try await cdp.evaluate("""
-                    (function() { var t = document.body ? document.body.innerText : ''; return t.indexOf('验证') !== -1 && (t.indexOf('滑动') !== -1 || t.indexOf('拼图') !== -1); })()
-                """) as? Bool ?? false
-                if !still { log(.info, "验证码已通过"); return }
-                if i % 10 == 0 && i > 0 { log(.info, "等待验证码处理...（\(i * 2)s）") }
+        guard isLoginPage || hasLoginPrompt else { return }
+
+        throw DouyinPublishError.cookieExpired(accountId: accountId)
+    }
+
+    // MARK: - 验证码检测
+
+    /// 检测页面是否弹出验证码（滑块/拼图/图片验证等）
+    /// 检测范围：页面主体 + dialog 弹窗 + iframe
+    /// 触发后：暂停队列，三重提醒用户，无限等待直到验证通过
+    private func checkVerification(cdp: CDPClient) async throws {
+        let hasV = (try? await cdp.evaluate("""
+            (function() {
+                // 主页面文本
+                var t = document.body ? document.body.innerText : '';
+                // dialog / 弹窗
+                var dialogs = document.querySelectorAll('[role="dialog"], .semi-modal, [class*="modal"], [class*="captcha"], [class*="verify"]');
+                for (var i = 0; i < dialogs.length; i++) { t += ' ' + dialogs[i].innerText; }
+                // iframe（同域才能读取）
+                var frames = document.querySelectorAll('iframe');
+                for (var j = 0; j < frames.length; j++) {
+                    try { t += ' ' + frames[j].contentDocument.body.innerText; } catch(e) {}
+                }
+                var keywords = ['滑动', '拼图', '验证码', '请完成验证', '安全验证', '点击完成验证', '向右拖动'];
+                for (var k = 0; k < keywords.length; k++) {
+                    if (t.indexOf(keywords[k]) !== -1) return true;
+                }
+                return false;
+            })()
+        """) as? Bool) ?? false
+
+        guard hasV else { return }
+
+        log(.warning, "⚠️ 检测到验证码！任务已暂停，请在 Chrome 窗口中手动完成验证")
+
+        // 三重提醒
+        await notifyUserForVerification()
+
+        // 无限等待，直到验证码消失
+        var seconds = 0
+        while true {
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            seconds += 2
+
+            let still = (try? await cdp.evaluate("""
+                (function() {
+                    var t = document.body ? document.body.innerText : '';
+                    var dialogs = document.querySelectorAll('[role="dialog"], .semi-modal, [class*="modal"], [class*="captcha"], [class*="verify"]');
+                    for (var i = 0; i < dialogs.length; i++) { t += ' ' + dialogs[i].innerText; }
+                    var frames = document.querySelectorAll('iframe');
+                    for (var j = 0; j < frames.length; j++) {
+                        try { t += ' ' + frames[j].contentDocument.body.innerText; } catch(e) {}
+                    }
+                    var keywords = ['滑动', '拼图', '验证码', '请完成验证', '安全验证', '点击完成验证', '向右拖动'];
+                    for (var k = 0; k < keywords.length; k++) {
+                        if (t.indexOf(keywords[k]) !== -1) return true;
+                    }
+                    return false;
+                })()
+            """) as? Bool) ?? false
+
+            if !still {
+                log(.info, "✅ 验证码已通过（等待了 \(seconds)s）")
+                // 验证通过后等一下让页面恢复
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                return
             }
-            log(.warning, "验证码等待超时，继续尝试...")
+
+            if seconds % 30 == 0 {
+                log(.info, "⏳ 仍在等待验证码处理...（已等待 \(seconds)s）")
+                // 每 30 秒重新提醒一次
+                await notifyUserForVerification()
+            }
         }
+    }
+
+    /// 三重提醒：Dock 弹跳 + 系统通知 + 声音
+    @MainActor
+    private func notifyUserForVerification() {
+        // 1. Dock 图标持续弹跳（直到用户切到 App）
+        NSApp.requestUserAttention(.criticalRequest)
+
+        // 2. 系统通知
+        let content = UNMutableNotificationContent()
+        content.title = "⚠️ 抖音验证码"
+        content.body = "抖音触发了验证码，请切换到 Chrome 窗口手动完成验证"
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "captcha-\(UUID().uuidString)", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+
+        // 3. 系统提示音
+        NSSound.beep()
     }
 
     // MARK: - 视频发布
@@ -221,7 +314,16 @@ final class CDPPublishService {
         try await cdp.navigate(to: "https://creator.douyin.com/creator-micro/content/upload")
         try await sleep()
 
+        // 检测登录是否过期（Cookie 失效会跳转到登录页）
+        try await checkLoginStatus(cdp: cdp, accountId: task.douyinAccountId)
         try await checkVerification(cdp: cdp)
+
+        // 登录恢复后重新导航到上传页
+        let urlAfterCheck = try await cdp.getCurrentURL()
+        if !urlAfterCheck.contains("upload") {
+            try await cdp.navigate(to: "https://creator.douyin.com/creator-micro/content/upload")
+            try await sleep()
+        }
 
         // 2. 处理"上次未发布"弹窗
         let _ = try await cdp.evaluate("(function(){var b=document.querySelectorAll('span,button,a');for(var i=0;i<b.length;i++){if(b[i].textContent.trim()==='放弃'){b[i].click();return'ok'}}return'no'})()")
@@ -234,29 +336,37 @@ final class CDPPublishService {
             files: [videoFile.path]
         )
         try await sleep()
+        try await checkVerification(cdp: cdp)
 
         // 4. 等待跳转到发布信息页
         log(.info, "等待视频处理...")
         try await cdp.waitForURL(containing: "publish", timeout: 180)
         log(.info, "已进入发布信息页")
         try await sleep(2)
-
         try await checkVerification(cdp: cdp)
 
-        // 5. 填写标题（在 input 中，用"作品标题"列，不是"作品文案"列）
+        // 5. 填写标题
         let titleText = (task.title ?? task.content).prefix(30).description
         await fillTitle(cdp: cdp, title: titleText)
         try await sleep()
+        try await checkVerification(cdp: cdp)
 
-        // 6. 填写文案和话题（在 contenteditable 编辑器中）
+        // 6. 填写文案和话题
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
+        try await checkVerification(cdp: cdp)
 
-        // 7. 定时发布
+        // 7. 设置封面
+        await setCover(cdp: cdp)
+        try await sleep()
+        try await checkVerification(cdp: cdp)
+
+        // 8. 定时发布
         if let time = task.scheduledTime {
             log(.info, "设置定时发布...")
             await setScheduleTime(cdp: cdp, time: time)
             try await sleep()
+            try await checkVerification(cdp: cdp)
         }
 
         // 9. 点击发布
@@ -271,12 +381,22 @@ final class CDPPublishService {
         try await cdp.navigate(to: "https://creator.douyin.com/creator-micro/content/upload")
         try await sleep()
 
+        // 检测登录是否过期
+        try await checkLoginStatus(cdp: cdp, accountId: task.douyinAccountId)
         try await checkVerification(cdp: cdp)
+
+        // 登录恢复后重新导航到上传页
+        let urlAfterCheck = try await cdp.getCurrentURL()
+        if !urlAfterCheck.contains("upload") {
+            try await cdp.navigate(to: "https://creator.douyin.com/creator-micro/content/upload")
+            try await sleep()
+        }
 
         // 切换图文模式
         log(.info, "切换到图文发布模式...")
         let _ = try await cdp.evaluate("(function(){var t=document.querySelectorAll('span,div,a');for(var i=0;i<t.length;i++){if(t[i].textContent.trim()==='发布图文'){t[i].click();return'ok'}}return'no'})()")
         try await sleep(2)
+        try await checkVerification(cdp: cdp)
 
         // 上传图片
         log(.info, "上传 \(localFiles.count) 张图片...")
@@ -285,28 +405,31 @@ final class CDPPublishService {
             files: localFiles.map { $0.path }
         )
         try await sleep()
+        try await checkVerification(cdp: cdp)
 
         try await cdp.waitForURL(containing: "publish", timeout: 120)
         log(.info, "已进入发布信息页")
         try await sleep(2)
-
         try await checkVerification(cdp: cdp)
 
         // 标题
         if let title = task.title, !title.isEmpty {
             await fillTitle(cdp: cdp, title: String(title.prefix(30)))
             try await sleep()
+            try await checkVerification(cdp: cdp)
         }
 
         // 文案 + 话题
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
+        try await checkVerification(cdp: cdp)
 
         // 定时
         if let time = task.scheduledTime {
             log(.info, "设置定时发布...")
             await setScheduleTime(cdp: cdp, time: time)
             try await sleep()
+            try await checkVerification(cdp: cdp)
         }
 
         log(.info, "点击发布...")
@@ -419,6 +542,62 @@ final class CDPPublishService {
             remaining = String(remaining[end...])
         }
         return segments
+    }
+
+    // MARK: - 设置封面
+
+    /// 点击「选择封面」或「设置封面」→ 等弹窗加载 → 点击「完成」
+    private func setCover(cdp: CDPClient) async {
+        log(.info, "设置封面...")
+
+        // 1. 点击「选择封面」或「设置封面」（找到任一个即点击）
+        // 找「选择封面」文字节点并点击其父容器（卡片区域）
+        let clicked = (try? await cdp.evaluate("""
+            (function(){
+                var spans = document.querySelectorAll('span, div, p');
+                for (var i = 0; i < spans.length; i++) {
+                    var t = spans[i].textContent.trim();
+                    if (t === '选择封面') {
+                        // 往上找可点击的父容器
+                        var target = spans[i];
+                        for (var j = 0; j < 5; j++) {
+                            if (target.parentElement) target = target.parentElement;
+                        }
+                        target.click();
+                        spans[i].click();
+                        return 'clicked: ' + t;
+                    }
+                }
+                return 'not_found';
+            })()
+        """) as? String) ?? "error"
+        log(.info, "封面按钮点击结果: \(clicked)")
+
+        if clicked.contains("not_found") {
+            log(.warning, "未找到封面按钮，跳过")
+            return
+        }
+
+        // 2. 等待 2 秒让弹窗加载
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+        // 3. 在弹窗中点击「完成」按钮
+        let coverResult = (try? await cdp.evaluate("""
+            (function(){
+                var buttons = document.querySelectorAll('button');
+                for (var i = 0; i < buttons.length; i++) {
+                    if (buttons[i].textContent.trim() === '完成') {
+                        buttons[i].click();
+                        return 'clicked';
+                    }
+                }
+                return 'not_found';
+            })()
+        """) as? String) ?? "error"
+        log(.info, "封面完成按钮: \(coverResult)")
+
+        // 4. 等待 1 秒让弹窗关闭
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
     }
 
     // MARK: - 页面内音乐选择（已废弃，音乐通过 MusicDownloader 下载后合并到视频中）
