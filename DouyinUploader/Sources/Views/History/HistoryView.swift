@@ -214,21 +214,15 @@ struct LogDetailView: View {
 
             Divider()
 
-            // 日志内容
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    if log.entries.isEmpty {
-                        Text("（无详细日志条目）")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding()
-                    } else {
-                        ForEach(log.entries) { entry in
-                            LogEntryRowView(entry: entry)
-                        }
-                    }
-                }
-                .padding(8)
+            // 日志内容（带过滤功能）
+            if log.entries.isEmpty {
+                Text("（无详细日志条目）")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                LogScrollView(logs: log.entries)
             }
         }
     }
