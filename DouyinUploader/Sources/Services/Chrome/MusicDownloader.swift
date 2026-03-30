@@ -259,7 +259,11 @@ final class MusicDownloader {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("douyin_music", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        let safeName = String(musicName.replacingOccurrences(of: "/", with: "_").prefix(30))
+        // 只保留安全字符（字母、数字、汉字、空格、下划线、连字符）
+        let safeName = String(musicName
+            .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || "_ -".unicodeScalars.contains($0) || (0x4E00...0x9FFF).contains($0.value) }
+            .prefix(30)
+        )
         let mimeType = json["type"] as? String ?? ""
         let ext = mimeType.contains("m4a") ? "m4a" : "mp3"
         let localURL = tempDir.appendingPathComponent("\(safeName).\(ext)")
