@@ -65,6 +65,21 @@ struct TaskOverviewView: View {
                 }
             }
 
+            // 预估耗时
+            let taskCount = viewModel.validTasks.count
+            if taskCount > 0 {
+                let estimatedSeconds = taskCount * 45 + (taskCount - 1) * 10 // 每条约 45s + 间隔 10s
+                let minutes = estimatedSeconds / 60
+                HStack(spacing: 6) {
+                    Image(systemName: "clock")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("预估耗时：约 \(minutes < 1 ? 1 : minutes) 分钟")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             if invalidCount > 0 {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
