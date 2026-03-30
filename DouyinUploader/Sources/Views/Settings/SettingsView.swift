@@ -10,17 +10,30 @@ struct SettingsView: View {
     @State private var downloadStatus = ""
 
     var body: some View {
-        Form {
-            chromeSection
-            executionSection
-            systemSection
-            advancedSection
-            otherSection
-            aboutSection
+        if #available(macOS 13.0, *) {
+            Form {
+                chromeSection
+                executionSection
+                systemSection
+                advancedSection
+                otherSection
+                aboutSection
+            }
+            .formStyle(.grouped)
+            .navigationTitle("设置")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Form {
+                chromeSection
+                executionSection
+                systemSection
+                advancedSection
+                otherSection
+                aboutSection
+            }
+            .navigationTitle("设置")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // .formStyle(.grouped) 需要 macOS 13+，macOS 12 用默认样式
-        .navigationTitle("设置")
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - 浏览器引擎
