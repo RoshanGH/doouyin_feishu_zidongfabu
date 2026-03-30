@@ -436,17 +436,44 @@ final class ExecutionViewModel: ObservableObject {
     func startExecution() {
         guard !validTasks.isEmpty else { return }
 
-        // 检查 Chrome 是否已安装
-        guard ChromeManager.shared.isInstalled else {
-            addLog(level: .error, message: "Chrome 浏览器引擎未安装，请先在「设置」中下载安装")
-            return
-        }
-
         guard let configId = selectedConfigId,
               let config = configs.first(where: { $0.id == configId }) else {
             return
         }
 
+        // Chrome 未安装时自动下载
+        if !ChromeManager.shared.isInstalled {
+            state = .running
+            addLog(level: .info, message: "首次运行，正在下载 Chrome 浏览器引擎...")
+
+            ChromeManager.shared.onDownloadProgress = { [weak self] progress, message in
+                Task { @MainActor in
+                    self?.addLog(level: .info, message: "下载进度: \(Int(progress * 100))% — \(message)")
+                }
+            }
+
+            Task {
+                do {
+                    try await ChromeManager.shared.downloadIfNeeded()
+                    await MainActor.run {
+                        self.addLog(level: .success, message: "Chrome 下载完成，开始执行任务...")
+                        self.state = .idle // 重置状态以便重新进入
+                        self.doStartExecution(config: config)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.addLog(level: .error, message: "Chrome 下载失败：\(error.localizedDescription)")
+                        self.state = .loadFailed("Chrome 下载失败：\(error.localizedDescription)")
+                    }
+                }
+            }
+            return
+        }
+
+        doStartExecution(config: config)
+    }
+
+    private func doStartExecution(config: FeishuConfig) {
         state = .running
         isPaused = false
         currentTaskIndex = 0
