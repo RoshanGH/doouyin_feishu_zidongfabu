@@ -13,6 +13,17 @@ struct QRCodeLoginView: View {
                 Text("扫码登录抖音")
                     .font(.headline)
                 Spacer()
+
+                if !viewModel.loginStatus.isEmpty {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                        Text(viewModel.loginStatus)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 Button("取消") {
                     viewModel.cancelLogin()
                 }
@@ -26,12 +37,16 @@ struct QRCodeLoginView: View {
 
             DouyinLoginWebView(
                 onLoginSuccess: { cookies, nickname, douyinId, avatar in
+                    viewModel.loginStatus = ""
                     viewModel.handleWebViewLoginSuccess(
                         cookies: cookies,
                         nickname: nickname,
                         douyinId: douyinId,
                         avatarUrl: avatar
                     )
+                },
+                onStatusChange: { status in
+                    viewModel.loginStatus = status
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -45,6 +60,7 @@ struct QRCodeLoginView: View {
 struct DouyinLoginWebView: NSViewRepresentable {
 
     let onLoginSuccess: ([HTTPCookie], String, String, String?) -> Void
+    var onStatusChange: ((String) -> Void)?
 
     func makeNSView(context: Context) -> FocusableWebView {
         let config = WKWebViewConfiguration()
@@ -187,6 +203,7 @@ struct DouyinLoginWebView: NSViewRepresentable {
                 if isLoggedIn {
                     self.hasDetectedLogin = true
                     self.pollTimer?.invalidate()
+                    self.parent.onStatusChange?("登录成功，正在提取账号信息...")
 
                     // 等 Cookie 写入完成
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -200,6 +217,7 @@ struct DouyinLoginWebView: NSViewRepresentable {
 
         private func extractAndComplete(webView: WKWebView) {
             // 先导航到首页，首页有完整的用户信息（昵称、抖音号、头像）
+            parent.onStatusChange?("正在获取用户信息...")
             guard let homeURL = URL(string: "https://creator.douyin.com/creator-micro/home") else { return }
             webView.load(URLRequest(url: homeURL))
 
