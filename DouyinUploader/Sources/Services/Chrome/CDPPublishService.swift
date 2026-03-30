@@ -35,7 +35,7 @@ final class CDPPublishService {
         let process: Process
         let port: Int
         do {
-            (process, port) = try await chromeManager.launchChrome(accountId: accountId, headless: !settings.debugMode)
+            (process, port) = try await chromeManager.launchChrome(accountId: accountId, headless: false)
         } catch {
             log(.error, "Chrome 启动失败: \(error.localizedDescription)")
             for task in tasks { await onTaskResult(task, .failure(error)) }
@@ -136,7 +136,7 @@ final class CDPPublishService {
         guard chromeManager.isInstalled else { throw ChromeError.notInstalled }
 
         log(.info, "启动 Chrome...")
-        let (process, port) = try await chromeManager.launchChrome(accountId: task.douyinAccountId, headless: !settings.debugMode)
+        let (process, port) = try await chromeManager.launchChrome(accountId: task.douyinAccountId, headless: false)
         defer { process.terminate(); log(.info, "Chrome 进程已关闭") }
 
         let cdp = try await connectCDP(port: port)
