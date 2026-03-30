@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 清理过期日志（保留最近 30 天）
         LogStore().cleanup(retentionDays: 30)
 
+        // 请求通知权限
+        NotificationService.shared.requestPermission()
+
         // 设置 App 图标（从 Bundle 资源加载）
         if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {

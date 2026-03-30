@@ -613,6 +613,9 @@ final class ExecutionViewModel: ObservableObject {
                 )
                 saveExecutionLog()
                 state = .completed
+
+                // 系统通知
+                NotificationService.shared.sendExecutionComplete(success: successCount, failed: failedCount)
             }
         }
     }
