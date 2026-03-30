@@ -36,6 +36,61 @@ open -a Xcode /Users/menggang/www/douyin_upload/DouyinUploader/Package.swift
 
 抖音账号 | 抖音名称(可选) | 作品素材 | 作品标题 | 作品文案 | 话题标签 | 音乐名称 | 发布状态 | 发布时间 | 定时发布时间 | 失败原因
 
+## 打包发布注意事项
+
+### App 结构（必须严格遵守）
+
+```
+DouyinUploader.app/
+├── Contents/
+│   ├── Info.plist              # 需含 CFBundleIconFile
+│   ├── MacOS/DouyinUploader    # Release 二进制
+│   └── Resources/AppIcon.icns  # 图标
+└── DouyinUploader_DouyinUploader.bundle/  # ⚠️ 必须在 .app 根目录！
+    ├── JS/                                #   Bundle.module 从这里查找
+    └── Resources/
+```
+
+> `DouyinUploader_DouyinUploader.bundle` **不能放在** `Contents/Resources/` 下，否则 `Bundle.module` 找不到会 `fatalError` 闪退。SPM 生成的 `resource_bundle_accessor.swift` 查找路径是 `Bundle.main.bundleURL`（即 `.app/` 根目录）。
+
+### Chrome 必须保持可见窗口（headless: false）
+
+`CDPPublishService` 中 `launchChrome(headless: false)` 不能改为 `true`，原因：
+- 抖音会触发验证码验证（滑块、图片识别等）
+- headless 模式下用户无法看到和操作验证码
+- Chrome 窗口可见才能让用户手动处理验证
+
+### 打包命令参考
+
+```bash
+# 1. 构建
+cd DouyinUploader && swift build -c release
+
+# 2. 组装 .app（注意 bundle 放根目录）
+mkdir -p release/DouyinUploader.app/Contents/{MacOS,Resources}
+cp .build/release/DouyinUploader release/DouyinUploader.app/Contents/MacOS/
+cp .build/DouyinUploader.app/Contents/Info.plist release/DouyinUploader.app/Contents/
+cp icon/AppIcon.icns release/DouyinUploader.app/Contents/Resources/
+cp -R .build/release/DouyinUploader_DouyinUploader.bundle release/DouyinUploader.app/
+
+# 3. 去隔离属性
+xattr -cr release/DouyinUploader.app
+
+# 4. 打包 DMG
+hdiutil create -volname "抖音发布助手" -srcfolder /tmp/dmg_staging -ov -format UDZO output.dmg
+```
+
+### 已踩过的坑
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| 同事打开提示「已损坏，无法打开」 | macOS Gatekeeper 隔离属性 | 用户执行 `xattr -cr /Applications/DouyinUploader.app` |
+| 打开后闪退 | Bundle 放在 `Contents/Resources/` 下，`Bundle.module` 找不到 | Bundle 必须放 `.app/` 根目录 |
+| 点击「开始执行」无反应 | Chrome 未安装，代码静默 return | 已改为自动下载 Chrome |
+| Chrome 窗口不显示 | `headless: true` | 必须 `headless: false`，否则验证码无法处理 |
+| 端口 9222 冲突 | 硬编码端口 | 已改为动态查找可用端口 |
+| force unwrap 闪退 | `.first!`、`URL()!` | 全部改为安全解包 |
+
 ## 相关文档
 
 - `docs/PRD.md` — 产品需求文档 (v1.7)

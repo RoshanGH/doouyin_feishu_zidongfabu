@@ -252,18 +252,7 @@ final class CDPPublishService {
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
 
-        // 7. 音乐选择（视频页暂时跳过，音乐已通过融合方式加入视频）
-        // TODO: 视频发布页"添加音乐"按钮点击待修复
-        if task.hasMusic, let musicName = task.musicName {
-            log(.info, "尝试选择音乐「\(musicName)」...")
-            let musicOk = await selectMusic(cdp: cdp, musicName: musicName, isVideo: true)
-            if !musicOk {
-                log(.warning, "视频页音乐标签设置失败，跳过（音乐已融合到视频中）")
-            }
-            try await sleep()
-        }
-
-        // 8. 定时发布
+        // 7. 定时发布
         if let time = task.scheduledTime {
             log(.info, "设置定时发布...")
             await setScheduleTime(cdp: cdp, time: time)
@@ -312,16 +301,6 @@ final class CDPPublishService {
         // 文案 + 话题
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
-
-        // 音乐（失败则跳过此任务）
-        if task.hasMusic, let musicName = task.musicName {
-            log(.info, "搜索音乐「\(musicName)」...")
-            let musicOk = await selectMusic(cdp: cdp, musicName: musicName, isVideo: false)
-            if !musicOk {
-                throw DouyinPublishError.publishFailed("音乐选择失败：\(musicName)")
-            }
-            try await sleep()
-        }
 
         // 定时
         if let time = task.scheduledTime {
@@ -442,10 +421,10 @@ final class CDPPublishService {
         return segments
     }
 
-    // MARK: - 音乐选择
+    // MARK: - 页面内音乐选择（已废弃，音乐通过 MusicDownloader 下载后合并到视频中）
+    // 保留代码备查，不再调用
 
-    /// 选择音乐，返回是否成功
-    @discardableResult
+    @available(*, deprecated, message: "音乐已通过融合方式加入视频，不再使用页面内选择")
     private func selectMusic(cdp: CDPClient, musicName: String, isVideo: Bool) async -> Bool {
         let btnText = isVideo ? "添加音乐" : "选择音乐"
 
