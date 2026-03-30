@@ -442,6 +442,13 @@ final class ExecutionViewModel: ObservableObject {
     func startExecution() {
         guard !validTasks.isEmpty else { return }
 
+        // 网络检查
+        if !NetworkMonitor().isConnected {
+            addLog(level: .error, message: "网络不可用，请检查网络连接后重试")
+            state = .networkError
+            return
+        }
+
         guard let configId = selectedConfigId,
               let config = configs.first(where: { $0.id == configId }) else {
             return
