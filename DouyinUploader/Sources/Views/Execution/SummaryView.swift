@@ -151,7 +151,8 @@ struct SummaryView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             if let account = entry.account {
-                                Text(account)
+                                let nickname = viewModel.accountNicknames[account]
+                                Text(nickname ?? account)
                                     .font(.caption)
                                     .fontWeight(.medium)
                             }
