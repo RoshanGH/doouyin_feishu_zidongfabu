@@ -224,7 +224,9 @@ struct SettingsView: View {
     // MARK: - 打开选择器文件
 
     private func openSelectorsFile() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fallback
         let selectorsURL = appSupport
             .appendingPathComponent("com.menggang.douyin-uploader", isDirectory: true)
             .appendingPathComponent("selectors.json")

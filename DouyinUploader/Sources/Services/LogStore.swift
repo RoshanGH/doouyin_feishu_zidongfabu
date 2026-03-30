@@ -39,7 +39,9 @@ final class LogStore {
     private static let appBundleId = "com.menggang.douyin-uploader"
 
     static func logsDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fallback
         return appSupport
             .appendingPathComponent(appBundleId, isDirectory: true)
             .appendingPathComponent("logs", isDirectory: true)

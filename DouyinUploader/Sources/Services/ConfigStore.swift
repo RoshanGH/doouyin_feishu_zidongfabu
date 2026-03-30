@@ -39,7 +39,9 @@ final class ConfigStore {
 
     /// 获取配置目录 URL（不保证目录存在）
     static func configDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fallback
         return appSupport.appendingPathComponent(appBundleId, isDirectory: true)
     }
 

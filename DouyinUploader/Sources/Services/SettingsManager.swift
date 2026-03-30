@@ -33,7 +33,9 @@ final class SettingsManager {
     private static let appBundleId = "com.menggang.douyin-uploader"
 
     static func appSupportDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fallback
         return appSupport.appendingPathComponent(appBundleId, isDirectory: true)
     }
 

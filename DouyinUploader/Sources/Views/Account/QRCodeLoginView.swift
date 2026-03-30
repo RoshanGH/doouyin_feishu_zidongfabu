@@ -200,7 +200,7 @@ struct DouyinLoginWebView: NSViewRepresentable {
 
         private func extractAndComplete(webView: WKWebView) {
             // 先导航到首页，首页有完整的用户信息（昵称、抖音号、头像）
-            let homeURL = URL(string: "https://creator.douyin.com/creator-micro/home")!
+            guard let homeURL = URL(string: "https://creator.douyin.com/creator-micro/home") else { return }
             webView.load(URLRequest(url: homeURL))
 
             // 等首页加载完成后提取信息

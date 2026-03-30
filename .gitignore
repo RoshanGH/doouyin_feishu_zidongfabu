@@ -42,6 +42,13 @@ secrets/
 # Chrome for Testing（运行时自动下载，存于 Application Support，不在项目中）
 # 注意：不能用 chrome/ 会误匹配 Sources/Services/Chrome/
 
+# Release 构建产物
+release/
+
+# 图标中间产物（保留 SVG 源文件）
+icon/AppIcon.icns
+icon/AppIcon.iconset/
+
 # 临时文件
 *.tmp
 *.log

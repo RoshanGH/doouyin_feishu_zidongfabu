@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="accent1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fe2c55"/>
+      <stop offset="100%" style="stop-color:#ff6b81"/>
+    </linearGradient>
+    <linearGradient id="accent2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#25f4ee"/>
+      <stop offset="100%" style="stop-color:#5eead4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方形背景 (macOS 风格) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
+
+  <!-- 抖音音符符号 - 青色层 (偏移) -->
+  <g transform="translate(280, 180) scale(0.65)">
+    <path d="M480 128c0 0 80-10 160 80 80 90 80 160 80 160v320c0 0-60-40-140-40s-160 60-160 140 60 140 140 140 140-60 140-140V368c0 0 40 40 120 60 80 20 120 10 120 10"
+          stroke="url(#accent2)" stroke-width="72" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+  </g>
+
+  <!-- 抖音音符符号 - 红色层 (主体) -->
+  <g transform="translate(270, 170) scale(0.65)">
+    <path d="M480 128c0 0 80-10 160 80 80 90 80 160 80 160v320c0 0-60-40-140-40s-160 60-160 140 60 140 140 140 140-60 140-140V368c0 0 40 40 120 60 80 20 120 10 120 10"
+          stroke="url(#accent1)" stroke-width="72" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- 上传箭头 -->
+  <g transform="translate(512, 720)">
+    <!-- 箭头 -->
+    <path d="M0 -50 L-40 -10 L-15 -10 L-15 40 L15 40 L15 -10 L40 -10 Z"
+          fill="white" opacity="0.9"/>
+    <!-- 底部横线 -->
+    <rect x="-45" y="50" width="90" height="8" rx="4" fill="white" opacity="0.7"/>
+  </g>
+</svg>

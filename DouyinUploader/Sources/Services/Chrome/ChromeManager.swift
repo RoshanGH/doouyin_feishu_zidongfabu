@@ -9,7 +9,9 @@ final class ChromeManager {
     static let shared = ChromeManager()
 
     private let appSupportDir: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fallback
         return dir.appendingPathComponent("com.menggang.douyin-uploader", isDirectory: true)
     }()
 
@@ -68,12 +70,36 @@ final class ChromeManager {
         // 创建目录
         try FileManager.default.createDirectory(at: chromeDir, withIntermediateDirectories: true)
 
-        // 下载 zip
+        // 下载 zip（超时 10 分钟，Chrome 约 130MB，最多重试 3 次）
         let zipURL = chromeDir.appendingPathComponent("chrome.zip")
-        let (tempURL, response) = try await URLSession.shared.download(from: url)
+        let sessionConfig = URLSessionConfiguration.default
+        sessionConfig.timeoutIntervalForRequest = 120
+        sessionConfig.timeoutIntervalForResource = 600
+        let downloadSession = URLSession(configuration: sessionConfig)
 
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw ChromeError.downloadFailed("HTTP 状态码异常")
+        var lastError: Error?
+        var tempURL: URL?
+
+        for attempt in 1...3 {
+            do {
+                onDownloadProgress?(Double(attempt - 1) * 0.1, "下载中（第 \(attempt) 次尝试）...")
+                let (downloaded, response) = try await downloadSession.download(from: url)
+                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                    throw ChromeError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                }
+                tempURL = downloaded
+                break
+            } catch {
+                lastError = error
+                if attempt < 3 {
+                    onDownloadProgress?(0.0, "下载失败，\(3)秒后重试（\(attempt)/3）...")
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                }
+            }
+        }
+
+        guard let tempURL else {
+            throw ChromeError.downloadFailed("下载失败（已重试 3 次）：\(lastError?.localizedDescription ?? "未知错误")。请检查网络连接，确保能访问 storage.googleapis.com")
         }
 
         // 移动下载文件
@@ -100,11 +126,14 @@ final class ChromeManager {
         // 清理 zip
         try? FileManager.default.removeItem(at: zipURL)
 
-        // 设置可执行权限
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: chromeExecutable.path
-        )
+        // 设置可执行权限（Chrome 主程序 + helpers）
+        let chmod = Process()
+        chmod.executableURL = URL(fileURLWithPath: "/bin/chmod")
+        chmod.arguments = ["-R", "755", chromeDir.path]
+        chmod.standardOutput = FileHandle.nullDevice
+        chmod.standardError = FileHandle.nullDevice
+        try? chmod.run()
+        chmod.waitUntilExit()
 
         // 移除 quarantine 属性（避免 macOS Gatekeeper 阻止）
         let xattrProcess = Process()
@@ -148,6 +177,8 @@ final class ChromeManager {
             "--user-data-dir=\(profileDir.path)",
             "--no-first-run",
             "--no-default-browser-check",
+            "--no-sandbox",
+            "--disable-gpu",
             "--disable-extensions",
             "--disable-background-networking",
             "--disable-sync",
@@ -166,8 +197,8 @@ final class ChromeManager {
 
         try process.run()
 
-        // 等待 Chrome 启动（最多 20 秒）
-        for i in 0..<40 {
+        // 等待 Chrome 启动（最多 40 秒，老机器可能需要更长时间）
+        for i in 0..<80 {
             try await Task.sleep(nanoseconds: 500_000_000)
             if let _ = try? await getWebSocketURL(port: debugPort) {
                 print("[Chrome] 启动成功，耗时约 \(Double(i) * 0.5)s，端口 \(debugPort)")
@@ -181,7 +212,10 @@ final class ChromeManager {
 
     /// 获取 CDP WebSocket URL
     func getWebSocketURL(port: Int) async throws -> String {
-        let url = URL(string: "http://127.0.0.1:\(port)/json/version")!
+        let urlString = "http://127.0.0.1:\(port)/json/version"
+        guard let url = URL(string: urlString) else {
+            throw ChromeError.invalidURL(urlString)
+        }
         let (data, _) = try await URLSession.shared.data(from: url)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let wsURL = json["webSocketDebuggerUrl"] as? String else {
@@ -192,7 +226,10 @@ final class ChromeManager {
 
     /// 获取页面列表中第一个页面的 WebSocket URL
     func getPageWebSocketURL(port: Int) async throws -> String {
-        let url = URL(string: "http://127.0.0.1:\(port)/json")!
+        let urlString = "http://127.0.0.1:\(port)/json"
+        guard let url = URL(string: urlString) else {
+            throw ChromeError.invalidURL(urlString)
+        }
         let (data, _) = try await URLSession.shared.data(from: url)
         guard let pages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
               let firstPage = pages.first,
@@ -216,7 +253,27 @@ final class ChromeManager {
     }
 
     private func findAvailablePort() -> Int {
-        return 9222
+        // 从 9222 开始，找一个未被占用的端口
+        for port in 9222...9322 {
+            let sock = socket(AF_INET, SOCK_STREAM, 0)
+            guard sock >= 0 else { continue }
+            defer { close(sock) }
+
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = in_port_t(port).bigEndian
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+
+            let result = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    bind(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            if result == 0 {
+                return port
+            }
+        }
+        return 9222 // fallback
     }
 }
 

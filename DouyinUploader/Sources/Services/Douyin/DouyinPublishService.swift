@@ -151,7 +151,9 @@ final class DouyinPublishService: DouyinPublishServiceProtocol {
     ) async throws -> PublishResult {
 
         // 步骤 1：注入 Cookie 并加载上传页
-        let uploadURL = URL(string: selectorConfig.common.uploadPageURL)!
+        guard let uploadURL = URL(string: selectorConfig.common.uploadPageURL) else {
+            throw DouyinPublishError.publishFailed("无效的上传页面 URL")
+        }
         try await manager.injectCookiesAndLoad(cookies: cookies, url: uploadURL)
         try await manager.waitForNavigation(timeout: Timeout.pageLoad)
 
@@ -306,7 +308,9 @@ final class DouyinPublishService: DouyinPublishServiceProtocol {
     ) async throws -> PublishResult {
 
         // 步骤 1：注入 Cookie 并加载上传页
-        let uploadURL = URL(string: selectorConfig.common.uploadPageURL)!
+        guard let uploadURL = URL(string: selectorConfig.common.uploadPageURL) else {
+            throw DouyinPublishError.publishFailed("无效的上传页面 URL")
+        }
         try await manager.injectCookiesAndLoad(cookies: cookies, url: uploadURL)
         try await manager.waitForNavigation(timeout: Timeout.pageLoad)
 

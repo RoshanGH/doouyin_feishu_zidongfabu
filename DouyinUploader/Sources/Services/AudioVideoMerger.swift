@@ -32,12 +32,14 @@ final class AudioVideoMerger {
         guard let videoTrack = try await videoAsset.loadTracks(withMediaType: .video).first else {
             throw MergerError.noVideoTrack
         }
-        let compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw MergerError.noVideoTrack
+        }
         try compositionVideoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: videoDuration), of: videoTrack, at: .zero)
 
         // 2. 添加原声音频轨道（如果有）
-        if let originalAudioTrack = try await videoAsset.loadTracks(withMediaType: .audio).first {
-            let compositionOriginalAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        if let originalAudioTrack = try await videoAsset.loadTracks(withMediaType: .audio).first,
+           let compositionOriginalAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
             try compositionOriginalAudio.insertTimeRange(CMTimeRange(start: .zero, duration: videoDuration), of: originalAudioTrack, at: .zero)
         }
 
@@ -46,7 +48,9 @@ final class AudioVideoMerger {
             throw MergerError.noAudioTrack
         }
 
-        let compositionMusicTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let compositionMusicTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw MergerError.noAudioTrack
+        }
 
         let videoSeconds = CMTimeGetSeconds(videoDuration)
         let musicSeconds = CMTimeGetSeconds(musicDuration)

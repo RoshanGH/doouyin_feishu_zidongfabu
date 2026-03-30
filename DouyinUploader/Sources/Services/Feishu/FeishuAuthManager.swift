@@ -135,7 +135,10 @@ actor FeishuAuthManager {
         }
 
         // 构造 POST 请求
-        let url = URL(string: "\(baseURL)/auth/v3/tenant_access_token/internal")!
+        let urlString = "\(baseURL)/auth/v3/tenant_access_token/internal"
+        guard let url = URL(string: urlString) else {
+            throw FeishuAuthError.invalidResponse("无效的 API URL: \(urlString)")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")

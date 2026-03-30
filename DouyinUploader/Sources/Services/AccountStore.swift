@@ -38,10 +38,12 @@ final class AccountStore {
 
     /// 获取账号数据目录 URL
     static func accountDirectory() -> URL {
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!
+        ).first ?? fallback
         return appSupport.appendingPathComponent(appBundleId, isDirectory: true)
     }
 
