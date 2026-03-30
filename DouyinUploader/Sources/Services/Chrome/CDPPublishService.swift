@@ -55,12 +55,20 @@ final class CDPPublishService {
         }
         defer { cdp.disconnect() }
 
-        do {
-            try await injectCookies(cdp: cdp, accountId: accountId)
-        } catch {
-            log(.error, "Cookie 注入失败: \(error.localizedDescription)")
-            for task in tasks { await onTaskResult(task, .failure(error)) }
-            return
+        // 检查 Chrome profile 中是否已有有效 Cookie（非首次使用）
+        // 如果有则跳过注入，用 Chrome 自己存储的更新鲜的 Cookie
+        let chromeHasCookies = (try? await cdp.getCookies(domain: "douyin.com"))?.isEmpty == false
+        if chromeHasCookies {
+            log(.info, "Chrome 已有 Cookie，跳过注入（使用浏览器缓存的最新 Cookie）")
+        } else {
+            // 首次：从本地文件注入
+            do {
+                try await injectCookies(cdp: cdp, accountId: accountId)
+            } catch {
+                log(.error, "Cookie 注入失败: \(error.localizedDescription)")
+                for task in tasks { await onTaskResult(task, .failure(error)) }
+                return
+            }
         }
 
         let musicDownloader = MusicDownloader()
