@@ -134,6 +134,45 @@ final class CDPPublishService {
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             }
         }
+
+        // 执行完毕，从 Chrome 回收最新 Cookie（服务器可能已续期）
+        await refreshCookies(cdp: cdp, accountId: accountId)
+    }
+
+    // MARK: - Cookie 续期
+
+    /// 从 Chrome 提取最新 Cookie 存回本地（服务器在操作过程中可能已续期）
+    private func refreshCookies(cdp: CDPClient, accountId: String) async {
+        do {
+            let rawCookies = try await cdp.getCookies(domain: "douyin.com")
+            var httpCookies: [HTTPCookie] = []
+
+            for raw in rawCookies {
+                guard let name = raw["name"] as? String,
+                      let value = raw["value"] as? String,
+                      let domain = raw["domain"] as? String else { continue }
+
+                var props: [HTTPCookiePropertyKey: Any] = [
+                    .name: name,
+                    .value: value,
+                    .domain: domain,
+                    .path: raw["path"] as? String ?? "/"
+                ]
+                if let expires = raw["expires"] as? Double, expires > 0 {
+                    props[.expires] = Date(timeIntervalSince1970: expires)
+                }
+                if let cookie = HTTPCookie(properties: props) {
+                    httpCookies.append(cookie)
+                }
+            }
+
+            if !httpCookies.isEmpty {
+                try cookieManager.saveCookies(uniqueId: accountId, cookies: httpCookies)
+                log(.info, "Cookie 已续期（\(httpCookies.count) 个），下次执行可继续使用")
+            }
+        } catch {
+            log(.warning, "Cookie 回收失败: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - 单条发布
