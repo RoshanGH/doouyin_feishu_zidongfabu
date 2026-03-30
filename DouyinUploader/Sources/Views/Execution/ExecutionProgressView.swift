@@ -162,12 +162,36 @@ struct ExecutionProgressView: View {
 /// 实时日志滚动列表，新日志追加时自动滚动到底部
 struct LogScrollView: View {
     let logs: [LogEntry]
+    @State private var filterLevel: LogLevel? = nil
+
+    private var filteredLogs: [LogEntry] {
+        guard let level = filterLevel else { return logs }
+        return logs.filter { $0.level == level }
+    }
 
     var body: some View {
+        VStack(spacing: 0) {
+            // 过滤栏
+            HStack(spacing: 8) {
+                FilterButton(label: "全部", isActive: filterLevel == nil) { filterLevel = nil }
+                FilterButton(label: "错误", isActive: filterLevel == .error, color: .red) { filterLevel = .error }
+                FilterButton(label: "警告", isActive: filterLevel == .warning, color: .orange) { filterLevel = .warning }
+                FilterButton(label: "成功", isActive: filterLevel == .success, color: .green) { filterLevel = .success }
+                Spacer()
+                Text("\(filteredLogs.count) 条")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor))
+
+            Divider()
+
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(logs) { entry in
+                    ForEach(filteredLogs) { entry in
                         LogEntryRow(entry: entry)
                             .id(entry.id)
                     }
@@ -184,7 +208,30 @@ struct LogScrollView: View {
                 }
             }
         }
+        } // VStack
         .background(Color(nsColor: .textBackgroundColor))
+    }
+}
+
+// MARK: - 日志过滤按钮
+
+private struct FilterButton: View {
+    let label: String
+    let isActive: Bool
+    var color: Color = .accentColor
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption2)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isActive ? color.opacity(0.15) : Color.clear)
+                .foregroundColor(isActive ? color : .secondary)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
     }
 }
 
