@@ -143,6 +143,15 @@ struct TaskOverviewView: View {
                         .font(.caption)
                         .foregroundColor(.orange)
                         .padding(.top, 2)
+
+                    Button("重新检查登录状态") {
+                        Task {
+                            await viewModel.recheckLoginStatus()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.top, 4)
                 }
                 .padding(10)
                 .background(Color.red.opacity(0.08))

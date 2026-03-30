@@ -422,6 +422,11 @@ final class ExecutionViewModel: ObservableObject {
         expiredAccounts = expired
     }
 
+    /// 重新检查登录状态（用户在账号管理页扫码后回来点击）
+    func recheckLoginStatus() async {
+        await checkAccountLoginStatus(for: validTasks)
+    }
+
     // MARK: - 开始执行
 
     /// 开始串行执行所有有效任务
