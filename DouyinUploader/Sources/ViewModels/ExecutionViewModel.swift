@@ -457,7 +457,6 @@ final class ExecutionViewModel: ObservableObject {
                     try await ChromeManager.shared.downloadIfNeeded()
                     await MainActor.run {
                         self.addLog(level: .success, message: "Chrome 下载完成，开始执行任务...")
-                        self.state = .idle // 重置状态以便重新进入
                         self.doStartExecution(config: config)
                     }
                 } catch {
