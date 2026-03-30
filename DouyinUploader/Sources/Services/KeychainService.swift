@@ -59,12 +59,13 @@ final class KeychainService {
         }
     }
 
-    /// 将 key 转为安全的文件名
+    /// 将 key 转为安全的文件名（白名单过滤，防止路径遍历）
     private static func fileURL(for key: String) -> URL {
-        let safeKey = key
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: ":", with: "_")
-        return secretsDirectory.appendingPathComponent(safeKey)
+        let safeKey = String(key.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)
+        })
+        let finalKey = safeKey.isEmpty ? "unknown" : safeKey
+        return secretsDirectory.appendingPathComponent(finalKey)
     }
 
     // MARK: - 写入
