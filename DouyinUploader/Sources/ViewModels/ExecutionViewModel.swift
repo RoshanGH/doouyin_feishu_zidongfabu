@@ -501,9 +501,30 @@ final class ExecutionViewModel: ObservableObject {
 
                 addLog(level: .info, message: "--- 开始处理账号: \(group.accountId)（\(group.tasks.count) 条任务）---")
 
+                // 按批量上限切分（防风控）
+                let currentSettings = SettingsManager().load()
+                let batchLimit = max(1, currentSettings.batchLimit)
+                let batches = stride(from: 0, to: group.tasks.count, by: batchLimit).map {
+                    Array(group.tasks[$0..<min($0 + batchLimit, group.tasks.count)])
+                }
+
+                for (batchIndex, batchTasks) in batches.enumerated() {
+                    if Task.isCancelled { break }
+
+                    if batches.count > 1 {
+                        addLog(level: .info, message: "  批次 \(batchIndex + 1)/\(batches.count)（\(batchTasks.count) 条）")
+                    }
+
+                    // 非第一批需要等待
+                    if batchIndex > 0 {
+                        let waitMinutes = currentSettings.batchWaitMinutes
+                        addLog(level: .info, message: "  达到单账号批量上限（\(batchLimit) 条），等待 \(waitMinutes) 分钟后继续...")
+                        try? await Task.sleep(nanoseconds: UInt64(waitMinutes) * 60 * 1_000_000_000)
+                    }
+
                 await cdpPublishService.publishBatch(
                     accountId: group.accountId,
-                    tasks: group.tasks,
+                    tasks: batchTasks,
                     downloadFiles: { [weak self] task in
                         guard let self else { throw FeishuAPIError.invalidResponse("ViewModel 已释放") }
 
@@ -561,7 +582,8 @@ final class ExecutionViewModel: ObservableObject {
                         self.executionLog = log
                     }
                 )
-            }
+                } // batches 循环
+            } // tasksByAccount 循环
 
             // 执行完成
             if !Task.isCancelled {
@@ -617,6 +639,36 @@ final class ExecutionViewModel: ObservableObject {
     // MARK: - 重置到初始状态
 
     /// 重置 ViewModel 回到 idle 状态，可重新选择配置并拉取任务
+    /// 重新执行失败项（回到概览页，只保留上次失败的任务）
+    func retryFailedTasks() {
+        guard let configId = selectedConfigId else {
+            reset()
+            return
+        }
+
+        // 保存失败任务的 recordId
+        let failedRecordIds = Set(logs
+            .filter { $0.level == .error }
+            .compactMap { $0.account }
+        )
+
+        // 重新拉取飞书任务（筛选"发布失败"状态）
+        executionTask?.cancel()
+        executionTask = nil
+        isPaused = false
+        logs = []
+        successCount = 0
+        failedCount = 0
+        currentTaskIndex = 0
+        executionLog = nil
+        startTime = nil
+        state = .loading
+
+        Task {
+            await loadTasks()
+        }
+    }
+
     func reset() {
         executionTask?.cancel()
         executionTask = nil

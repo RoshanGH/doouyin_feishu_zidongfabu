@@ -4,6 +4,7 @@ import SwiftUI
 /// 展示：任务分类统计、涉及账号、登录状态、开始/取消按钮
 struct TaskOverviewView: View {
     @ObservedObject var viewModel: ExecutionViewModel
+    @State private var showConfirm = false
 
     var body: some View {
         ScrollView {
@@ -29,6 +30,14 @@ struct TaskOverviewView: View {
                 actionButtons
             }
             .padding(20)
+        }
+        .alert("确认执行", isPresented: $showConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("开始执行") {
+                viewModel.startExecution()
+            }
+        } message: {
+            Text("即将自动发布 \(viewModel.validTasks.count) 条任务到抖音，是否继续？")
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
@@ -134,7 +143,7 @@ struct TaskOverviewView: View {
         VStack(spacing: 10) {
             // 开始执行按钮（所有账号登录后才可点击）
             Button {
-                viewModel.startExecution()
+                showConfirm = true
             } label: {
                 Label(
                     viewModel.canStartExecution ? "开始执行" : "账号未全部登录",

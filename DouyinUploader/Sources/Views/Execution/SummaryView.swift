@@ -180,17 +180,31 @@ struct SummaryView: View {
     @ViewBuilder
     private var actionButtons: some View {
         VStack(spacing: 10) {
-            // 重新执行（回到 idle 重新读取）
+            // 重新执行失败项（仅在有失败时显示）
+            if viewModel.failedCount > 0 {
+                Button {
+                    viewModel.retryFailedTasks()
+                } label: {
+                    Label("重新执行失败项", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .controlSize(.large)
+            }
+
+            // 重新开始（全部重新读取执行）
             Button {
                 viewModel.reset()
+                viewModel.loadConfigs()
             } label: {
                 Label("重新开始", systemImage: "arrow.clockwise")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .controlSize(.large)
 
-            // 关闭（重置到空闲）
+            // 关闭
             Button {
                 viewModel.reset()
             } label: {

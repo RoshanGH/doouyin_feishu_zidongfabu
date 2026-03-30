@@ -66,9 +66,7 @@ struct ExecutionProgressView: View {
                         .foregroundColor(.secondary)
                     Spacer()
                     if let startTime = viewModel.startTime {
-                        Text("耗时：\(elapsedTime(since: startTime))")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        ElapsedTimeText(startTime: startTime)
                     }
                 }
             }
@@ -257,5 +255,28 @@ private struct StatItem: View {
                 .font(.callout)
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+// MARK: - 耗时实时刷新
+
+/// 每秒刷新一次的耗时文本（兼容 macOS 12）
+private struct ElapsedTimeText: View {
+    let startTime: Date
+    @State private var now = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Text("耗时：\(formatted)")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .onReceive(timer) { now = $0 }
+    }
+
+    private var formatted: String {
+        let elapsed = Int(now.timeIntervalSince(startTime))
+        let minutes = elapsed / 60
+        let secs = elapsed % 60
+        return minutes > 0 ? "\(minutes)m\(secs)s" : "\(secs)s"
     }
 }
