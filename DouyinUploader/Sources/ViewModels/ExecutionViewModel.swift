@@ -279,9 +279,15 @@ final class ExecutionViewModel: ObservableObject {
     func loadConfigs() {
         do {
             configs = try configStore.load()
-            // 自动选中第一个配置
+            // 恢复上次选择的配置
             if selectedConfigId == nil {
-                selectedConfigId = configs.first?.id
+                if let lastId = UserDefaults.standard.string(forKey: "lastSelectedConfigId"),
+                   let uuid = UUID(uuidString: lastId),
+                   configs.contains(where: { $0.id == uuid }) {
+                    selectedConfigId = uuid
+                } else {
+                    selectedConfigId = configs.first?.id
+                }
             }
         } catch {
             // 配置加载失败不阻断主流程
@@ -297,6 +303,9 @@ final class ExecutionViewModel: ObservableObject {
             state = .loadFailed("请先选择一个飞书配置")
             return
         }
+
+        // 记住选择的配置
+        UserDefaults.standard.set(configId.uuidString, forKey: "lastSelectedConfigId")
 
         state = .loading
         logs = []
