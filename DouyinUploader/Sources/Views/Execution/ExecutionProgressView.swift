@@ -128,7 +128,12 @@ struct ExecutionProgressView: View {
         case .running:
             if viewModel.currentTaskIndex < viewModel.validTasks.count {
                 let task = viewModel.validTasks[viewModel.currentTaskIndex]
-                return "正在发布：\(task.douyinAccountId)"
+                let nickname = viewModel.accountNicknames[task.douyinAccountId] ?? task.douyinAccountId
+                // 显示最后一条日志作为当前步骤
+                if let lastLog = viewModel.logs.last, lastLog.level == .info {
+                    return "[\(nickname)] \(lastLog.message)"
+                }
+                return "正在发布：\(nickname)"
             }
             return "正在执行..."
         default: return "正在执行..."
