@@ -658,18 +658,12 @@ final class ExecutionViewModel: ObservableObject {
     /// 重置 ViewModel 回到 idle 状态，可重新选择配置并拉取任务
     /// 重新执行失败项（回到概览页，只保留上次失败的任务）
     func retryFailedTasks() {
-        guard let configId = selectedConfigId else {
+        guard selectedConfigId != nil else {
             reset()
             return
         }
 
-        // 保存失败任务的 recordId
-        let failedRecordIds = Set(logs
-            .filter { $0.level == .error }
-            .compactMap { $0.account }
-        )
-
-        // 重新拉取飞书任务（筛选"发布失败"状态）
+        // 重新拉取飞书任务（飞书中"发布失败"的会被筛选出来）
         executionTask?.cancel()
         executionTask = nil
         isPaused = false
