@@ -17,6 +17,24 @@ struct FeishuConfigListView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 保存成功提示
+        .overlay(alignment: .top) {
+            if let msg = viewModel.successMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text(msg)
+                        .font(.callout)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.green.opacity(0.1))
+                .cornerRadius(8)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.easeInOut, value: viewModel.successMessage)
+            }
+        }
         // 删除确认弹窗
         .alert("删除配置", isPresented: $viewModel.showDeleteConfirm) {
             Button("取消", role: .cancel) {}

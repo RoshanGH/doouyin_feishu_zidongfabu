@@ -29,6 +29,9 @@ final class FeishuConfigViewModel: ObservableObject {
     /// 操作错误信息
     @Published var errorMessage: String?
 
+    /// 操作成功提示（自动消失）
+    @Published var successMessage: String?
+
     // MARK: - 编辑表单缓冲区（新增/编辑时使用）
 
     /// 表单：配置名称
@@ -134,6 +137,7 @@ final class FeishuConfigViewModel: ObservableObject {
             selectedConfig = newConfig
             isAdding = false
             clearForm()
+            showSuccess("配置已保存")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -207,6 +211,7 @@ final class FeishuConfigViewModel: ObservableObject {
             selectedConfig = updated
             isEditing = false
             clearForm()
+            showSuccess("配置已更新")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -385,5 +390,15 @@ final class FeishuConfigViewModel: ObservableObject {
         formAppId = ""
         formAppSecret = ""
         errorMessage = nil
+    }
+
+    private func showSuccess(_ message: String) {
+        successMessage = message
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if successMessage == message {
+                successMessage = nil
+            }
+        }
     }
 }
