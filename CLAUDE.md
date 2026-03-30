@@ -90,6 +90,10 @@ hdiutil create -volname "抖音发布助手" -srcfolder /tmp/dmg_staging -ov -fo
 | Chrome 窗口不显示 | `headless: true` | 必须 `headless: false`，否则验证码无法处理 |
 | 端口 9222 冲突 | 硬编码端口 | 已改为动态查找可用端口 |
 | force unwrap 闪退 | `.first!`、`URL()!` | 全部改为安全解包 |
+| 检查登录状态误判为过期 | `validateCookies` 只检查 `data.user.unique_id` 路径，但抖音接口返回 `user` 在顶层 | 改为多路径查找 + user 非空即有效 |
+| 设置封面点了「设置封面」标题无反应 | "设置封面"是模块标题，"选择封面"才是按钮 | 只匹配"选择封面"关键字 |
+| 音乐下载时登录过期未检测 | MusicDownloader 导航到文章页后未检测 URL | 添加 `checkLoginExpired` |
+| 页面内音乐选择失败 | 抖音页面"添加音乐"按钮交互复杂 | 已废弃，改用 MusicDownloader 下载 + AVFoundation 合并 |
 
 ## 调试日志
 
