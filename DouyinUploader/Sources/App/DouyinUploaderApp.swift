@@ -26,6 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 清理过期日志（保留最近 30 天）
         LogStore().cleanup(retentionDays: 30)
 
+        // 设置 App 图标（从 Bundle 资源加载）
+        if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
+
         // 创建标准菜单栏（解决 ⌘V/⌘C/⌘X/⌘A 在输入框中不工作的问题）
         setupMainMenu()
 
