@@ -31,9 +31,8 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            NavigationSplitView {
+            NavigationView {
                 SidebarView(selection: $selectedItem)
-            } detail: {
                 detailView
             }
 

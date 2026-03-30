@@ -18,7 +18,7 @@ struct SettingsView: View {
             otherSection
             aboutSection
         }
-        .formStyle(.grouped)
+        // .formStyle(.grouped) 需要 macOS 13+，macOS 12 用默认样式
         .navigationTitle("设置")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
