@@ -23,16 +23,23 @@ struct SettingsView: View {
             .navigationTitle("设置")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            Form {
-                chromeSection
-                executionSection
-                systemSection
-                advancedSection
-                otherSection
-                aboutSection
+            // macOS 12: 没有 .formStyle(.grouped)，用 ScrollView + VStack 模拟
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    settingsGroup("浏览器引擎") { chromeSection }
+                    settingsGroup("执行参数") { executionSection }
+                    settingsGroup("系统") { systemSection }
+                    settingsGroup("高级") { advancedSection }
+                    settingsGroup("其他") { otherSection }
+                    settingsGroup("关于") { aboutSection }
+                }
+                .frame(maxWidth: 600)
+                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity)
             }
             .navigationTitle("设置")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 
@@ -278,5 +285,26 @@ struct SettingsView: View {
         }
 
         NSWorkspace.shared.open(selectorsURL)
+    }
+
+    /// macOS 12 兼容：手动渲染分组标题 + 内容（替代 Form + .formStyle(.grouped)）
+    @ViewBuilder
+    private func settingsGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+
+            VStack(alignment: .leading, spacing: 10) {
+                content()
+            }
+            .padding(16)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(10)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
     }
 }
