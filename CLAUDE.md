@@ -10,6 +10,25 @@ osascript -e 'tell application "Xcode" to activate' -e 'delay 0.5' -e 'tell appl
 
 这条命令会：激活 Xcode → ⌘. 停止旧进程 → ⌘R 构建并运行。用户不需要做任何操作。
 
+## 停下来时必须弹窗提醒
+
+每次 Claude 完成任务、等待用户操作、或需要用户确认时，必须执行以下命令弹窗提醒：
+
+```bash
+osascript -e 'tell application "System Events" to display dialog "提醒内容" with title "Claude Code 提醒" buttons {"好的"} default button "好的" with icon note'
+```
+
+**必须提醒的时机**：
+- 打包完成，等待用户测试
+- 需要用户确认方案或操作
+- 任务执行完毕，等待下一步指令
+- 遇到问题需要用户介入
+
+## 打包规则
+
+- 只打包到本地 `release/` 目录，**不发布新 Release 版本**，除非用户明确要求发布
+- 需要更新已有版本时，用 `gh release upload --clobber` 覆盖资产
+
 ## 测试
 
 ```bash
