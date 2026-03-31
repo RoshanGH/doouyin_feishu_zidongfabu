@@ -59,47 +59,50 @@ final class ChromeManager {
 
         let arch = ProcessInfo.processInfo.machineArchitecture
         let platform = arch == "arm64" ? "mac-arm64" : "mac-x64"
-        let downloadURL = "https://storage.googleapis.com/chrome-for-testing-public/\(chromeVersion)/\(platform)/chrome-\(platform).zip"
+
+        // 多源下载：国内镜像优先，Google 原始源备选
+        let downloadURLs = [
+            "https://cdn.npmmirror.com/binaries/chrome-for-testing/\(chromeVersion)/\(platform)/chrome-\(platform).zip",
+            "https://registry.npmmirror.com/-/binary/chrome-for-testing/\(chromeVersion)/\(platform)/chrome-\(platform).zip",
+            "https://storage.googleapis.com/chrome-for-testing-public/\(chromeVersion)/\(platform)/chrome-\(platform).zip"
+        ]
 
         onDownloadProgress?(0.0, "正在下载 Chrome (\(platform))...")
-
-        guard let url = URL(string: downloadURL) else {
-            throw ChromeError.invalidURL(downloadURL)
-        }
 
         // 创建目录
         try FileManager.default.createDirectory(at: chromeDir, withIntermediateDirectories: true)
 
-        // 下载 zip（超时 10 分钟，Chrome 约 130MB，最多重试 3 次）
         let zipURL = chromeDir.appendingPathComponent("chrome.zip")
         let sessionConfig = URLSessionConfiguration.default
-        sessionConfig.timeoutIntervalForRequest = 120
+        sessionConfig.timeoutIntervalForRequest = 30
         sessionConfig.timeoutIntervalForResource = 600
         let downloadSession = URLSession(configuration: sessionConfig)
 
         var lastError: Error?
         var tempURL: URL?
 
-        for attempt in 1...3 {
+        for (index, urlString) in downloadURLs.enumerated() {
+            guard let url = URL(string: urlString) else { continue }
+            let sourceName = index < 2 ? "国内镜像\(index + 1)" : "Google 源"
+
             do {
-                onDownloadProgress?(Double(attempt - 1) * 0.1, "下载中（第 \(attempt) 次尝试）...")
+                onDownloadProgress?(Double(index) * 0.2, "尝试 \(sourceName) 下载...")
                 let (downloaded, response) = try await downloadSession.download(from: url)
                 guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                     throw ChromeError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
                 }
                 tempURL = downloaded
+                onDownloadProgress?(0.6, "\(sourceName) 下载成功")
                 break
             } catch {
                 lastError = error
-                if attempt < 3 {
-                    onDownloadProgress?(0.0, "下载失败，\(3)秒后重试（\(attempt)/3）...")
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                }
+                onDownloadProgress?(0.0, "\(sourceName) 失败，尝试下一个...")
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
 
         guard let tempURL else {
-            throw ChromeError.downloadFailed("下载失败（已重试 3 次）：\(lastError?.localizedDescription ?? "未知错误")。请检查网络连接，确保能访问 storage.googleapis.com")
+            throw ChromeError.downloadFailed("所有下载源均失败：\(lastError?.localizedDescription ?? "未知错误")。请检查网络连接")
         }
 
         // 移动下载文件
