@@ -46,7 +46,8 @@ enum AIResponseParser {
     private static func parseAction(type: String, dict: [String: Any]) throws -> AIAction {
         switch type {
         case "click":
-            guard let x = dict["x"] as? Int, let y = dict["y"] as? Int else {
+            guard let x = (dict["x"] as? Int) ?? (dict["x"] as? Double).map(Int.init),
+                  let y = (dict["y"] as? Int) ?? (dict["y"] as? Double).map(Int.init) else {
                 throw ParseError.missingField("action.x/y")
             }
             return .click(x: x, y: y)

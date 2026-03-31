@@ -144,6 +144,7 @@ final class AIVisionService {
         guard let image = NSImage(data: pngData) else { return pngData }
 
         let targetWidth: CGFloat = 640
+        guard image.size.width > 0 else { return pngData }
         let scale = targetWidth / image.size.width
         let targetHeight = image.size.height * scale
 
@@ -221,7 +222,7 @@ enum AIServiceError: LocalizedError {
         switch self {
         case .invalidURL: return "AI API 地址无效"
         case .invalidResponse: return "AI API 返回格式异常"
-        case .httpError(let code, let body): return "AI API 错误 (HTTP \(code)): \(body.prefix(100))"
+        case .httpError(let code, _): return "AI API 错误 (HTTP \(code))"
         case .parseError(let msg): return "AI 响应解析失败: \(msg)"
         case .circuitOpen: return "AI 服务暂时不可用（连续失败，60秒后重试）"
         case .notConfigured: return "未配置 AI API Key"

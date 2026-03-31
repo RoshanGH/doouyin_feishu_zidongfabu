@@ -289,7 +289,7 @@ final class CDPPublishService {
     // MARK: - 验证码检测
 
     /// 检测弹窗/验证码/异常 — AI 模式用截图分析，fallback 用旧的关键词匹配
-    private func checkVerification(cdp: CDPClient, aiAgent: AIAgent? = nil) async throws {
+    private func checkVerification(cdp: CDPClient, aiAgent: AIAgent? = nil, accountId: String = "") async throws {
         // AI 模式：截图让 AI 判断
         if let agent = aiAgent, settings.aiMode != .off {
             do {
@@ -301,7 +301,7 @@ final class CDPPublishService {
                     let _ = try await agent.checkAndHandlePopup(taskDescription: "发布任务")
                 }
                 return
-            } catch let error as AIAgentError where error is AIAgentError {
+            } catch let error as AIAgentError {
                 switch error {
                 case .captchaDetected(let msg):
                     log(.warning, "⚠️ AI 检测到验证码：\(msg)")
@@ -310,7 +310,7 @@ final class CDPPublishService {
                     try await waitForCaptchaResolution(cdp: cdp, aiAgent: agent)
                     return
                 case .loginExpired:
-                    throw DouyinPublishError.cookieExpired(accountId: "")
+                    throw DouyinPublishError.cookieExpired(accountId: accountId)
                 default:
                     log(.warning, "AI 弹窗检测异常，回退到旧逻辑: \(error.localizedDescription)")
                 }
@@ -435,7 +435,7 @@ final class CDPPublishService {
 
         // 检测登录是否过期（Cookie 失效会跳转到登录页）
         try await checkLoginStatus(cdp: cdp, accountId: task.douyinAccountId)
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 登录恢复后重新导航到上传页
         let urlAfterCheck = try await cdp.getCurrentURL()
@@ -455,37 +455,37 @@ final class CDPPublishService {
             files: [videoFile.path]
         )
         try await sleep()
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 4. 等待跳转到发布信息页
         log(.info, "等待视频处理...")
         try await cdp.waitForURL(containing: "publish", timeout: 180)
         log(.info, "已进入发布信息页")
         try await sleep(2)
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 5. 填写标题
         let titleText = (task.title ?? task.content).prefix(30).description
         await fillTitle(cdp: cdp, title: titleText)
         try await sleep()
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 6. 填写文案和话题
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 7. 设置封面
         await setCover(cdp: cdp, aiAgent: aiAgent)
         try await sleep()
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 8. 定时发布
         if let time = task.scheduledTime {
             log(.info, "设置定时发布...")
             await setScheduleTime(cdp: cdp, time: time)
             try await sleep()
-            try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+            try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
         }
 
         // 9. 点击发布
@@ -502,7 +502,7 @@ final class CDPPublishService {
 
         // 检测登录是否过期
         try await checkLoginStatus(cdp: cdp, accountId: task.douyinAccountId)
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 登录恢复后重新导航到上传页
         let urlAfterCheck = try await cdp.getCurrentURL()
@@ -515,7 +515,7 @@ final class CDPPublishService {
         log(.info, "切换到图文发布模式...")
         let _ = try await cdp.evaluate("(function(){var t=document.querySelectorAll('span,div,a');for(var i=0;i<t.length;i++){if(t[i].textContent.trim()==='发布图文'){t[i].click();return'ok'}}return'no'})()")
         try await sleep(2)
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 上传图片
         log(.info, "上传 \(localFiles.count) 张图片...")
@@ -524,31 +524,31 @@ final class CDPPublishService {
             files: localFiles.map { $0.path }
         )
         try await sleep()
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         try await cdp.waitForURL(containing: "publish", timeout: 120)
         log(.info, "已进入发布信息页")
         try await sleep(2)
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 标题
         if let title = task.title, !title.isEmpty {
             await fillTitle(cdp: cdp, title: String(title.prefix(30)))
             try await sleep()
-            try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+            try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
         }
 
         // 文案 + 话题
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
-        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 定时
         if let time = task.scheduledTime {
             log(.info, "设置定时发布...")
             await setScheduleTime(cdp: cdp, time: time)
             try await sleep()
-            try await checkVerification(cdp: cdp, aiAgent: aiAgent)
+            try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
         }
 
         log(.info, "点击发布...")

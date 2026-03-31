@@ -68,6 +68,9 @@ final class AIAgent {
         maxRetries: Int = 3
     ) async throws {
         for attempt in 1...maxRetries {
+            if isStuck {
+                throw AIAgentError.stuck
+            }
             let result = try await findElement(description: elementDescription)
             guard case .click(let x, let y) = result.action else {
                 if attempt == maxRetries {
