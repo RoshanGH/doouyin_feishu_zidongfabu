@@ -231,12 +231,16 @@ struct SettingsView: View {
                     Text(mode.displayName).tag(mode)
                 }
             }
+            .onChange(of: settingsManager.settings.aiMode) { _ in
+                settingsManager.saveSettings()
+            }
 
             // API 转发地址
             HStack {
                 Text("API 地址")
                 TextField("https://apicn.unifyllm.top/v1", text: $settingsManager.settings.aiBaseURL)
                     .textFieldStyle(.roundedBorder)
+                    .onSubmit { settingsManager.saveSettings() }
             }
 
             // API Key（SecureField）
@@ -256,6 +260,7 @@ struct SettingsView: View {
                 Text("模型")
                 TextField("claude-sonnet-4-6", text: $settingsManager.settings.aiModel)
                     .textFieldStyle(.roundedBorder)
+                    .onSubmit { settingsManager.saveSettings() }
             }
 
             // 测试连接按钮
