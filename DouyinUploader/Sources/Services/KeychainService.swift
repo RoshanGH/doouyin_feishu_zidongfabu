@@ -145,4 +145,7 @@ extension KeychainService {
     static func appSecretKey(for configId: UUID) -> String {
         "feishu.appSecret.\(configId.uuidString)"
     }
+
+    /// AI API Key 存储 key
+    static let aiAPIKeyStorageKey = "ai.apiKey"
 }

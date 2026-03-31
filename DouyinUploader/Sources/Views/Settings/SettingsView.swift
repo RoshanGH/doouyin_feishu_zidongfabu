@@ -9,12 +9,18 @@ struct SettingsView: View {
     @State private var isDownloading = false
     @State private var downloadStatus = ""
 
+    // MARK: - AI 配置相关状态
+    @State private var aiAPIKey = ""
+    @State private var isTesting = false
+    @State private var aiTestResult: String?
+
     var body: some View {
         if #available(macOS 13.0, *) {
             Form {
                 chromeSection
                 executionSection
                 systemSection
+                aiConfigSection
                 advancedSection
                 otherSection
                 aboutSection
@@ -22,6 +28,7 @@ struct SettingsView: View {
             .formStyle(.grouped)
             .navigationTitle("设置")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { loadAIAPIKey() }
         } else {
             // macOS 12: 没有 .formStyle(.grouped)，用 ScrollView + VStack 模拟
             ScrollView {
@@ -29,6 +36,7 @@ struct SettingsView: View {
                     settingsGroup("浏览器引擎") { chromeSection }
                     settingsGroup("执行参数") { executionSection }
                     settingsGroup("系统") { systemSection }
+                    settingsGroup("AI 配置") { aiConfigSection }
                     settingsGroup("高级") { advancedSection }
                     settingsGroup("其他") { otherSection }
                     settingsGroup("关于") { aboutSection }
@@ -40,6 +48,7 @@ struct SettingsView: View {
             .navigationTitle("设置")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
+            .onAppear { loadAIAPIKey() }
         }
     }
 
@@ -207,6 +216,102 @@ struct SettingsView: View {
                 ) {
                     Text("\(settingsManager.settings.logRetentionDays) 天")
                         .frame(width: 55, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    // MARK: - AI 配置
+
+    private var aiConfigSection: some View {
+        Section("AI 配置") {
+            // AI 模式选择
+            Picker("AI 模式", selection: $settingsManager.settings.aiMode) {
+                ForEach(AIMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+
+            // API 转发地址
+            HStack {
+                Text("API 地址")
+                TextField("https://apicn.unifyllm.top/v1", text: $settingsManager.settings.aiBaseURL)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            // API Key（SecureField）
+            HStack {
+                Text("API Key")
+                SecureField("sk-...", text: $aiAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                Button("保存") {
+                    saveAIAPIKey()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            // 模型名称
+            HStack {
+                Text("模型")
+                TextField("claude-sonnet-4-6", text: $settingsManager.settings.aiModel)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            // 测试连接按钮
+            HStack {
+                Button(action: testAIConnection) {
+                    if isTesting {
+                        ProgressView().scaleEffect(0.7)
+                    }
+                    Text(isTesting ? "测试中..." : "测试连接")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isTesting)
+
+                if let result = aiTestResult {
+                    Text(result)
+                        .font(.caption)
+                        .foregroundColor(result.contains("成功") ? .green : .red)
+                }
+            }
+
+            Text("AI 用于自动处理弹窗、定位页面元素，提高发布稳定性。需要 API Key。")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func loadAIAPIKey() {
+        aiAPIKey = (try? KeychainService.loadString(key: KeychainService.aiAPIKeyStorageKey)) ?? ""
+    }
+
+    private func saveAIAPIKey() {
+        try? KeychainService.save(key: KeychainService.aiAPIKeyStorageKey, value: aiAPIKey)
+        settingsManager.saveSettings()
+        aiTestResult = nil
+    }
+
+    private func testAIConnection() {
+        isTesting = true
+        aiTestResult = nil
+        let config = AIConfig(
+            baseURL: settingsManager.settings.aiBaseURL,
+            apiKey: aiAPIKey,
+            model: settingsManager.settings.aiModel
+        )
+        let service = AIVisionService(config: config)
+        Task {
+            do {
+                let result = try await service.testConnection()
+                await MainActor.run {
+                    aiTestResult = result
+                    isTesting = false
+                }
+            } catch {
+                await MainActor.run {
+                    aiTestResult = "失败：\(error.localizedDescription)"
+                    isTesting = false
                 }
             }
         }
