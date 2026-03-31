@@ -609,16 +609,20 @@ final class CDPPublishService {
         // 1. 找到「选择封面」的坐标，用 CDP 鼠标点击（比 JS click 更可靠）
         let coordStr = (try? await cdp.evaluate("""
             (function(){
-                var all = document.querySelectorAll('span, div, p');
+                var all = document.querySelectorAll('*');
+                var best = null;
                 for (var i = 0; i < all.length; i++) {
-                    if (all[i].childElementCount === 0 && all[i].textContent.trim() === '选择封面') {
+                    var t = all[i].textContent.trim();
+                    if (t === '选择封面') {
                         var r = all[i].getBoundingClientRect();
-                        if (r.width > 0 && r.height > 0) {
-                            return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
+                        if (r.width > 0 && r.height > 0 && r.width < 200) {
+                            if (!best || r.width < best.w) {
+                                best = {x: r.x + r.width/2, y: r.y + r.height/2, w: r.width};
+                            }
                         }
                     }
                 }
-                return '';
+                return best ? JSON.stringify({x: best.x, y: best.y}) : '';
             })()
         """) as? String) ?? ""
 
