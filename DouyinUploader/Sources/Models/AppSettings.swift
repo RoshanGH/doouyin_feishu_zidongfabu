@@ -24,4 +24,28 @@ struct AppSettings: Codable, Equatable {
     var debugMode: Bool = false
     /// 是否完成引导
     var hasCompletedOnboarding: Bool = false
+
+    // MARK: - AI 配置
+
+    /// AI 模式
+    var aiMode: AIMode = .off
+    /// AI API 转发地址
+    var aiBaseURL: String = AIConfig.defaultBaseURL
+    /// AI 模型名称
+    var aiModel: String = AIConfig.defaultModel
+}
+
+/// AI 模式
+enum AIMode: String, Codable, CaseIterable, Equatable {
+    case off = "off"              // 关闭 AI，走旧逻辑
+    case popupOnly = "popup_only" // 仅弹窗检测
+    case full = "full"            // 完整 AI 驱动
+
+    var displayName: String {
+        switch self {
+        case .off: return "关闭"
+        case .popupOnly: return "仅弹窗检测"
+        case .full: return "完整 AI 驱动"
+        }
+    }
 }
