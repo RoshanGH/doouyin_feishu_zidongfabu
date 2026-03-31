@@ -113,6 +113,7 @@ cat ~/Library/Application\ Support/com.menggang.douyin-uploader/debug-logs/cooki
 ## 相关文档
 
 - `docs/PRD.md` — 产品需求文档 (v1.8)
+- `docs/AI_REFACTOR_DESIGN.md` — AI 驱动重构设计文档（重要）
 - `docs/TECH_RESEARCH.md` — 技术调研报告
 - `docs/TEST_SCENARIOS.md` — 测试场景清单
-- `docs/SPIKE_RESULTS.md` — Spike Test 验证结果（待填写）
+- `docs/SPIKE_RESULTS.md` — Spike Test 验证结果
