@@ -69,6 +69,21 @@ final class CDPPublishService {
             return
         }
 
+        // 创建 AI Agent（如果配置了 AI Key 且模式不是 off）
+        let aiAgent: AIAgent? = {
+            guard settings.aiMode != .off else { return nil }
+            guard let apiKey = try? KeychainService.loadString(key: KeychainService.aiAPIKeyStorageKey),
+                  !apiKey.isEmpty else { return nil }
+            let config = AIConfig(baseURL: settings.aiBaseURL, apiKey: apiKey, model: settings.aiModel)
+            let driver = CDPDriverImpl(client: cdp)
+            let agent = AIAgent(config: config, driver: driver)
+            agent.onLog = onLog
+            return agent
+        }()
+        if aiAgent != nil {
+            log(.info, "AI 模式已启用（\(settings.aiMode.displayName)）")
+        }
+
         let musicDownloader = MusicDownloader()
         musicDownloader.onLog = onLog
         let merger = AudioVideoMerger()
@@ -113,9 +128,9 @@ final class CDPPublishService {
                 // 发布
                 let result: PublishResult
                 if task.isVideo {
-                    result = try await publishVideo(cdp: cdp, task: task, localFiles: localFiles)
+                    result = try await publishVideo(cdp: cdp, task: task, localFiles: localFiles, aiAgent: aiAgent)
                 } else if task.isImagePost {
-                    result = try await publishImages(cdp: cdp, task: task, localFiles: localFiles)
+                    result = try await publishImages(cdp: cdp, task: task, localFiles: localFiles, aiAgent: aiAgent)
                 } else {
                     throw DouyinPublishError.invalidTaskMedia
                 }
@@ -273,18 +288,110 @@ final class CDPPublishService {
 
     // MARK: - 验证码检测
 
-    /// 检测页面是否弹出验证码（滑块/拼图/图片验证等）
-    /// 检测范围：页面主体 + dialog 弹窗 + iframe
-    /// 触发后：暂停队列，三重提醒用户，无限等待直到验证通过
-    private func checkVerification(cdp: CDPClient) async throws {
-        let hasV = (try? await cdp.evaluate("""
+    /// 检测弹窗/验证码/异常 — AI 模式用截图分析，fallback 用旧的关键词匹配
+    private func checkVerification(cdp: CDPClient, aiAgent: AIAgent? = nil) async throws {
+        // AI 模式：截图让 AI 判断
+        if let agent = aiAgent, settings.aiMode != .off {
+            do {
+                let handled = try await agent.checkAndHandlePopup(taskDescription: "发布任务")
+                if handled {
+                    log(.info, "AI 自动处理了弹窗")
+                    // 处理后再检查一次（可能有多层弹窗）
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    let _ = try await agent.checkAndHandlePopup(taskDescription: "发布任务")
+                }
+                return
+            } catch let error as AIAgentError where error is AIAgentError {
+                switch error {
+                case .captchaDetected(let msg):
+                    log(.warning, "⚠️ AI 检测到验证码：\(msg)")
+                    await notifyUserForVerification()
+                    // 无限等待用户处理
+                    try await waitForCaptchaResolution(cdp: cdp, aiAgent: agent)
+                    return
+                case .loginExpired:
+                    throw DouyinPublishError.cookieExpired(accountId: "")
+                default:
+                    log(.warning, "AI 弹窗检测异常，回退到旧逻辑: \(error.localizedDescription)")
+                }
+            } catch {
+                log(.warning, "AI 不可用，回退到旧逻辑: \(error.localizedDescription)")
+            }
+        }
+
+        // Fallback：旧的关键词匹配逻辑
+        try await checkVerificationLegacy(cdp: cdp)
+    }
+
+    /// AI 模式下等待验证码完成
+    private func waitForCaptchaResolution(cdp: CDPClient, aiAgent: AIAgent) async throws {
+        var seconds = 0
+        while true {
+            try await Task.sleep(nanoseconds: 3_000_000_000)
+            seconds += 3
+
+            // 用 AI 再次检查验证码是否消失
+            do {
+                let result = try await aiAgent.analyzePage(
+                    taskDescription: "发布任务",
+                    currentStep: "等待验证码完成"
+                )
+                if result.status != .captcha {
+                    log(.info, "✅ 验证码已通过（等待了 \(seconds)s）")
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    return
+                }
+            } catch {
+                // AI 失败时 fallback 到旧方式检查
+                let still = try await checkVerificationKeywords(cdp: cdp)
+                if !still {
+                    log(.info, "✅ 验证码已通过（等待了 \(seconds)s）")
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    return
+                }
+            }
+
+            if seconds % 30 == 0 {
+                log(.info, "⏳ 仍在等待验证码处理...（已等待 \(seconds)s）")
+                await notifyUserForVerification()
+            }
+        }
+    }
+
+    /// 旧逻辑：JS 关键词匹配检测验证码
+    private func checkVerificationLegacy(cdp: CDPClient) async throws {
+        let hasV = try await checkVerificationKeywords(cdp: cdp)
+        guard hasV else { return }
+
+        log(.warning, "⚠️ 检测到验证码！任务已暂停，请在 Chrome 窗口中手动完成验证")
+        await notifyUserForVerification()
+
+        var seconds = 0
+        while true {
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            seconds += 2
+
+            let still = try await checkVerificationKeywords(cdp: cdp)
+            if !still {
+                log(.info, "✅ 验证码已通过（等待了 \(seconds)s）")
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                return
+            }
+
+            if seconds % 30 == 0 {
+                log(.info, "⏳ 仍在等待验证码处理...（已等待 \(seconds)s）")
+                await notifyUserForVerification()
+            }
+        }
+    }
+
+    /// 检测页面中是否包含验证码关键词（提取为独立方法，供多处调用）
+    private func checkVerificationKeywords(cdp: CDPClient) async throws -> Bool {
+        return (try? await cdp.evaluate("""
             (function() {
-                // 主页面文本
                 var t = document.body ? document.body.innerText : '';
-                // dialog / 弹窗
                 var dialogs = document.querySelectorAll('[role="dialog"], .semi-modal, [class*="modal"], [class*="captcha"], [class*="verify"]');
                 for (var i = 0; i < dialogs.length; i++) { t += ' ' + dialogs[i].innerText; }
-                // iframe（同域才能读取）
                 var frames = document.querySelectorAll('iframe');
                 for (var j = 0; j < frames.length; j++) {
                     try { t += ' ' + frames[j].contentDocument.body.innerText; } catch(e) {}
@@ -296,50 +403,6 @@ final class CDPPublishService {
                 return false;
             })()
         """) as? Bool) ?? false
-
-        guard hasV else { return }
-
-        log(.warning, "⚠️ 检测到验证码！任务已暂停，请在 Chrome 窗口中手动完成验证")
-
-        // 三重提醒
-        await notifyUserForVerification()
-
-        // 无限等待，直到验证码消失
-        var seconds = 0
-        while true {
-            try await Task.sleep(nanoseconds: 2_000_000_000)
-            seconds += 2
-
-            let still = (try? await cdp.evaluate("""
-                (function() {
-                    var t = document.body ? document.body.innerText : '';
-                    var dialogs = document.querySelectorAll('[role="dialog"], .semi-modal, [class*="modal"], [class*="captcha"], [class*="verify"]');
-                    for (var i = 0; i < dialogs.length; i++) { t += ' ' + dialogs[i].innerText; }
-                    var frames = document.querySelectorAll('iframe');
-                    for (var j = 0; j < frames.length; j++) {
-                        try { t += ' ' + frames[j].contentDocument.body.innerText; } catch(e) {}
-                    }
-                    var keywords = ['滑动', '拼图', '验证码', '请完成验证', '安全验证', '点击完成验证', '向右拖动'];
-                    for (var k = 0; k < keywords.length; k++) {
-                        if (t.indexOf(keywords[k]) !== -1) return true;
-                    }
-                    return false;
-                })()
-            """) as? Bool) ?? false
-
-            if !still {
-                log(.info, "✅ 验证码已通过（等待了 \(seconds)s）")
-                // 验证通过后等一下让页面恢复
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-                return
-            }
-
-            if seconds % 30 == 0 {
-                log(.info, "⏳ 仍在等待验证码处理...（已等待 \(seconds)s）")
-                // 每 30 秒重新提醒一次
-                await notifyUserForVerification()
-            }
-        }
     }
 
     /// 三重提醒：Dock 弹跳 + 系统通知 + 声音
@@ -362,7 +425,7 @@ final class CDPPublishService {
 
     // MARK: - 视频发布
 
-    private func publishVideo(cdp: CDPClient, task: PublishTask, localFiles: [URL]) async throws -> PublishResult {
+    private func publishVideo(cdp: CDPClient, task: PublishTask, localFiles: [URL], aiAgent: AIAgent? = nil) async throws -> PublishResult {
         guard let videoFile = localFiles.first else { throw DouyinPublishError.localFilesNotProvided }
 
         // 1. 加载上传页
@@ -372,7 +435,7 @@ final class CDPPublishService {
 
         // 检测登录是否过期（Cookie 失效会跳转到登录页）
         try await checkLoginStatus(cdp: cdp, accountId: task.douyinAccountId)
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 登录恢复后重新导航到上传页
         let urlAfterCheck = try await cdp.getCurrentURL()
@@ -392,37 +455,37 @@ final class CDPPublishService {
             files: [videoFile.path]
         )
         try await sleep()
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 4. 等待跳转到发布信息页
         log(.info, "等待视频处理...")
         try await cdp.waitForURL(containing: "publish", timeout: 180)
         log(.info, "已进入发布信息页")
         try await sleep(2)
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 5. 填写标题
         let titleText = (task.title ?? task.content).prefix(30).description
         await fillTitle(cdp: cdp, title: titleText)
         try await sleep()
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 6. 填写文案和话题
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 7. 设置封面
         await setCover(cdp: cdp)
         try await sleep()
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 8. 定时发布
         if let time = task.scheduledTime {
             log(.info, "设置定时发布...")
             await setScheduleTime(cdp: cdp, time: time)
             try await sleep()
-            try await checkVerification(cdp: cdp)
+            try await checkVerification(cdp: cdp, aiAgent: aiAgent)
         }
 
         // 9. 点击发布
@@ -432,14 +495,14 @@ final class CDPPublishService {
 
     // MARK: - 图文发布
 
-    private func publishImages(cdp: CDPClient, task: PublishTask, localFiles: [URL]) async throws -> PublishResult {
+    private func publishImages(cdp: CDPClient, task: PublishTask, localFiles: [URL], aiAgent: AIAgent? = nil) async throws -> PublishResult {
         log(.info, "加载抖音上传页...")
         try await cdp.navigate(to: "https://creator.douyin.com/creator-micro/content/upload")
         try await sleep()
 
         // 检测登录是否过期
         try await checkLoginStatus(cdp: cdp, accountId: task.douyinAccountId)
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 登录恢复后重新导航到上传页
         let urlAfterCheck = try await cdp.getCurrentURL()
@@ -452,7 +515,7 @@ final class CDPPublishService {
         log(.info, "切换到图文发布模式...")
         let _ = try await cdp.evaluate("(function(){var t=document.querySelectorAll('span,div,a');for(var i=0;i<t.length;i++){if(t[i].textContent.trim()==='发布图文'){t[i].click();return'ok'}}return'no'})()")
         try await sleep(2)
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 上传图片
         log(.info, "上传 \(localFiles.count) 张图片...")
@@ -461,31 +524,31 @@ final class CDPPublishService {
             files: localFiles.map { $0.path }
         )
         try await sleep()
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         try await cdp.waitForURL(containing: "publish", timeout: 120)
         log(.info, "已进入发布信息页")
         try await sleep(2)
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 标题
         if let title = task.title, !title.isEmpty {
             await fillTitle(cdp: cdp, title: String(title.prefix(30)))
             try await sleep()
-            try await checkVerification(cdp: cdp)
+            try await checkVerification(cdp: cdp, aiAgent: aiAgent)
         }
 
         // 文案 + 话题
         await fillDescription(cdp: cdp, content: task.content, tags: task.tags)
         try await sleep()
-        try await checkVerification(cdp: cdp)
+        try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 定时
         if let time = task.scheduledTime {
             log(.info, "设置定时发布...")
             await setScheduleTime(cdp: cdp, time: time)
             try await sleep()
-            try await checkVerification(cdp: cdp)
+            try await checkVerification(cdp: cdp, aiAgent: aiAgent)
         }
 
         log(.info, "点击发布...")
