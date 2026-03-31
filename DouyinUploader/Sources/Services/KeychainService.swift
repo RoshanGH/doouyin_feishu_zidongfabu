@@ -55,7 +55,11 @@ final class KeychainService {
     private static func ensureDirectoryExists() throws {
         let dir = secretsDirectory
         if !FileManager.default.fileExists(atPath: dir.path) {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: dir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
         }
     }
 

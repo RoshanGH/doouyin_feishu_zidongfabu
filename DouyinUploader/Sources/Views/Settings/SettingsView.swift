@@ -298,6 +298,8 @@ struct SettingsView: View {
     }
 
     private func testAIConnection() {
+        // 测试前自动保存 Key 和设置
+        saveAIAPIKey()
         isTesting = true
         aiTestResult = nil
         let config = AIConfig(
