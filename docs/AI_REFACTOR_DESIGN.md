@@ -1,6 +1,12 @@
 # 抖音发布助手 — AI 驱动重构设计文档
 
-> 状态：设计中 | 创建日期：2026-03-31
+> 状态：**Phase 1-3 已完成，Phase 4 进行中** | 创建日期：2026-03-31 | 更新：2026-03-31
+>
+> 进度：
+> - [x] Phase 1：基础设施（AIVisionService + CDPDriver + 设置页）
+> - [x] Phase 2：AI 弹窗检测（checkVerification AI+fallback 双路径）
+> - [x] Phase 3：AI 元素定位（封面+发布按钮 AI+fallback）
+> - [ ] Phase 4：优化监控（断路器日志、调用统计、截图优化）
 
 ## 一、为什么要重构
 
