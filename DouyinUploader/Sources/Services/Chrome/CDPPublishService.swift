@@ -43,7 +43,11 @@ final class CDPPublishService {
             for task in tasks { await onTaskResult(task, .failure(error)) }
             return
         }
-        defer { process.terminate(); log(.info, "Chrome 进程已关闭") }
+        defer {
+            process.terminate()
+            process.waitUntilExit()
+            log(.info, "Chrome 进程已关闭")
+        }
 
         let cdp: CDPClient
         do {
@@ -55,20 +59,14 @@ final class CDPPublishService {
         }
         defer { cdp.disconnect() }
 
-        // 检查 Chrome profile 中是否已有有效 Cookie（非首次使用）
-        // 如果有则跳过注入，用 Chrome 自己存储的更新鲜的 Cookie
-        let chromeHasCookies = (try? await cdp.getCookies(domain: "douyin.com"))?.isEmpty == false
-        if chromeHasCookies {
-            log(.info, "Chrome 已有 Cookie，跳过注入（使用浏览器缓存的最新 Cookie）")
-        } else {
-            // 首次：从本地文件注入
-            do {
-                try await injectCookies(cdp: cdp, accountId: accountId)
-            } catch {
-                log(.error, "Cookie 注入失败: \(error.localizedDescription)")
-                for task in tasks { await onTaskResult(task, .failure(error)) }
-                return
-            }
+        // 先清空 Chrome 中的旧 Cookie，再注入当前账号的 Cookie（确保账号隔离）
+        let _ = try? await cdp.send("Network.clearBrowserCookies")
+        do {
+            try await injectCookies(cdp: cdp, accountId: accountId)
+        } catch {
+            log(.error, "Cookie 注入失败: \(error.localizedDescription)")
+            for task in tasks { await onTaskResult(task, .failure(error)) }
+            return
         }
 
         let musicDownloader = MusicDownloader()
@@ -190,7 +188,11 @@ final class CDPPublishService {
 
         log(.info, "启动 Chrome...")
         let (process, port) = try await chromeManager.launchChrome(accountId: task.douyinAccountId, headless: false)
-        defer { process.terminate(); log(.info, "Chrome 进程已关闭") }
+        defer {
+            process.terminate()
+            process.waitUntilExit()
+            log(.info, "Chrome 进程已关闭")
+        }
 
         let cdp = try await connectCDP(port: port)
         defer { cdp.disconnect() }
@@ -604,31 +606,40 @@ final class CDPPublishService {
     private func setCover(cdp: CDPClient) async {
         log(.info, "设置封面...")
 
-        // 1. 点击「选择封面」或「设置封面」（找到任一个即点击）
-        // 找「选择封面」文字节点并点击其父容器（卡片区域）
-        let clicked = (try? await cdp.evaluate("""
+        // 1. 找到「选择封面」的坐标，用 CDP 鼠标点击（比 JS click 更可靠）
+        let coordStr = (try? await cdp.evaluate("""
             (function(){
-                var spans = document.querySelectorAll('span, div, p');
-                for (var i = 0; i < spans.length; i++) {
-                    var t = spans[i].textContent.trim();
-                    if (t === '选择封面') {
-                        // 往上找可点击的父容器
-                        var target = spans[i];
-                        for (var j = 0; j < 5; j++) {
-                            if (target.parentElement) target = target.parentElement;
+                var all = document.querySelectorAll('span, div, p');
+                for (var i = 0; i < all.length; i++) {
+                    if (all[i].childElementCount === 0 && all[i].textContent.trim() === '选择封面') {
+                        var r = all[i].getBoundingClientRect();
+                        if (r.width > 0 && r.height > 0) {
+                            return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
                         }
-                        target.click();
-                        spans[i].click();
-                        return 'clicked: ' + t;
                     }
                 }
-                return 'not_found';
+                return '';
             })()
-        """) as? String) ?? "error"
-        log(.info, "封面按钮点击结果: \(clicked)")
+        """) as? String) ?? ""
 
-        if clicked.contains("not_found") {
+        if coordStr.isEmpty {
             log(.warning, "未找到封面按钮，跳过")
+            return
+        }
+
+        // 解析坐标并模拟鼠标点击
+        if let data = coordStr.data(using: .utf8),
+           let coord = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let x = coord["x"] as? Double, let y = coord["y"] as? Double {
+            log(.info, "点击「选择封面」坐标: (\(Int(x)), \(Int(y)))")
+            let _ = try? await cdp.send("Input.dispatchMouseEvent", params: [
+                "type": "mousePressed", "x": Int(x), "y": Int(y), "button": "left", "clickCount": 1
+            ])
+            let _ = try? await cdp.send("Input.dispatchMouseEvent", params: [
+                "type": "mouseReleased", "x": Int(x), "y": Int(y), "button": "left", "clickCount": 1
+            ])
+        } else {
+            log(.warning, "封面按钮坐标解析失败，跳过")
             return
         }
 

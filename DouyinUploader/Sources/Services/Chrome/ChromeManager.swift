@@ -166,9 +166,9 @@ final class ChromeManager {
         // 自动选择可用端口
         let debugPort = port > 0 ? port : findAvailablePort()
 
-        // 先杀掉旧的 Chrome 进程（避免端口冲突）
+        // 先杀掉旧的 Chrome 进程（避免端口冲突和 Cookie 串扰）
         killAllChromeProcesses()
-        try await Task.sleep(nanoseconds: 500_000_000)
+        try await Task.sleep(nanoseconds: 2_000_000_000) // 等 2 秒确保进程完全退出
 
         let profileDir = userDataDir(for: accountId)
         try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
