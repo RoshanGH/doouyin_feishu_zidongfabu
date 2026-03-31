@@ -79,14 +79,19 @@ final class AIAgent {
                 continue
             }
 
-            // 坐标合理性检查
-            guard AIResponseParser.isValidCoordinate(x: x, y: y, viewportWidth: 1280, viewportHeight: 800) else {
-                log(.warning, "AI 返回坐标不合理: (\(x), \(y))，重试 \(attempt)/\(maxRetries)")
+            // 坐标缩放：截图压缩到 640px 宽，AI 返回的是 640px 坐标系
+            // CDP 点击需要实际视口坐标（1280px），所以 x2
+            let scaledX = x * 2
+            let scaledY = y * 2
+
+            guard AIResponseParser.isValidCoordinate(x: scaledX, y: scaledY, viewportWidth: 1280, viewportHeight: 800) else {
+                log(.warning, "AI 返回坐标不合理: (\(x), \(y)) → 缩放后 (\(scaledX), \(scaledY))，重试 \(attempt)/\(maxRetries)")
                 continue
             }
 
-            // 执行点击
-            try await driver.click(x: x, y: y)
+            // 执行点击（使用缩放后的坐标）
+            log(.info, "AI 点击: (\(x),\(y)) → 缩放 (\(scaledX),\(scaledY))")
+            try await driver.click(x: scaledX, y: scaledY)
             try await Task.sleep(nanoseconds: 1_500_000_000)
 
             // 验证操作结果

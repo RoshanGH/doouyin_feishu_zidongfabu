@@ -43,17 +43,17 @@ enum AIPromptBuilder {
         }
 
         注意：
+        - 截图宽度为 640 像素，坐标基于此分辨率
         - 如果有弹窗遮挡，优先处理弹窗（找到关闭按钮的坐标）
         - 如果是验证码，返回 waitForUser
         - 如果看到登录页，返回 error + loginExpired
-        - 坐标基于截图的像素位置
         """
     }
 
     /// 构建元素定位 prompt
     static func buildFindElement(elementDescription: String) -> String {
         return """
-        看这张抖音创作者中心的页面截图，找到以下元素：
+        看这张抖音创作者中心的页面截图（宽度 640 像素），找到以下元素：
 
         \(elementDescription)
 
