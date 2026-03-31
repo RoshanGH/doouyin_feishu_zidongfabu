@@ -1,5 +1,15 @@
 # 抖音发布助手 (DouyinUploader)
 
+## 工作方式（重要）
+
+Claude 拥有大量 skills 和 agent，在解决问题时应该选择最专业的方式：
+- 复杂功能开发 → 用 planner agent 先规划再实现
+- 代码编写 → 用 tdd-guide agent 测试驱动开发
+- 多个独立任务 → 用 Agent 工具并行执行
+- 构建失败 → 用 build-error-resolver agent 快速修复
+- 代码审查 → 用 code-reviewer agent
+- 安全问题 → 用 security-reviewer agent
+
 ## 开发流程（重要）
 
 每次修改代码后，Claude 必须自动执行以下命令，在 Xcode 中触发 ⌘R 构建并运行：

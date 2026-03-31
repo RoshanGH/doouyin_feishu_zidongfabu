@@ -476,7 +476,7 @@ final class CDPPublishService {
         try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
         // 7. 设置封面
-        await setCover(cdp: cdp)
+        await setCover(cdp: cdp, aiAgent: aiAgent)
         try await sleep()
         try await checkVerification(cdp: cdp, aiAgent: aiAgent)
 
@@ -490,7 +490,7 @@ final class CDPPublishService {
 
         // 9. 点击发布
         log(.info, "点击发布...")
-        return try await clickPublishAndWait(cdp: cdp)
+        return try await clickPublishAndWait(cdp: cdp, aiAgent: aiAgent)
     }
 
     // MARK: - 图文发布
@@ -552,7 +552,7 @@ final class CDPPublishService {
         }
 
         log(.info, "点击发布...")
-        return try await clickPublishAndWait(cdp: cdp)
+        return try await clickPublishAndWait(cdp: cdp, aiAgent: aiAgent)
     }
 
     // MARK: - 填写标题
@@ -666,9 +666,32 @@ final class CDPPublishService {
     // MARK: - 设置封面
 
     /// 点击「选择封面」或「设置封面」→ 等弹窗加载 → 点击「完成」
-    private func setCover(cdp: CDPClient) async {
+    private func setCover(cdp: CDPClient, aiAgent: AIAgent? = nil) async {
         log(.info, "设置封面...")
 
+        // AI 模式：让 AI 定位「选择封面」按钮
+        if let agent = aiAgent, settings.aiMode == .full {
+            do {
+                try await agent.safeClick(
+                    elementDescription: "找到页面上的「选择封面」按钮（不是「设置封面」标题），返回按钮的中心坐标",
+                    verifyDescription: "封面设置弹窗已打开，能看到封面编辑界面"
+                )
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+
+                // AI 找「完成」按钮
+                try await agent.safeClick(
+                    elementDescription: "找到封面设置弹窗底部的「完成」按钮",
+                    verifyDescription: "封面弹窗已关闭"
+                )
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                log(.info, "封面设置完成（AI）")
+                return
+            } catch {
+                log(.warning, "AI 封面设置失败，回退到旧逻辑: \(error.localizedDescription)")
+            }
+        }
+
+        // Fallback：JS 坐标定位逻辑
         // 1. 找到「选择封面」的坐标，用 CDP 鼠标点击（比 JS click 更可靠）
         let coordStr = (try? await cdp.evaluate("""
             (function(){
@@ -796,7 +819,39 @@ final class CDPPublishService {
 
     // MARK: - 点击发布
 
-    private func clickPublishAndWait(cdp: CDPClient) async throws -> PublishResult {
+    private func clickPublishAndWait(cdp: CDPClient, aiAgent: AIAgent? = nil) async throws -> PublishResult {
+        // AI 模式：让 AI 找发布按钮并点击
+        if let agent = aiAgent, settings.aiMode == .full {
+            do {
+                try await agent.safeClick(
+                    elementDescription: "找到页面右下角的红色/蓝色「发布」按钮",
+                    verifyDescription: "页面开始跳转或出现发布成功提示"
+                )
+                // 等待发布结果（与 fallback 逻辑共享）
+                let start = Date()
+                while Date().timeIntervalSince(start) < 30 {
+                    try await Task.sleep(nanoseconds: stepDelay)
+                    let url = try await cdp.getCurrentURL()
+                    if url.contains("manage") {
+                        log(.success, "发布成功！（AI）")
+                        return PublishResult(success: true, message: "发布成功", publishedURL: url)
+                    }
+                    // 处理封面弹窗
+                    let _ = try? await cdp.evaluate("(function(){var b=document.querySelectorAll('button');for(var i=0;i<b.length;i++){if(b[i].textContent.trim()==='完成'){b[i].click();return'ok'}}return'no'})()")
+                }
+                let textAI = try await cdp.evaluate("document.body.innerText.substring(0,200)") as? String ?? ""
+                if textAI.contains("发布成功") || textAI.contains("已发布") {
+                    return PublishResult(success: true, message: "发布成功", publishedURL: nil)
+                }
+                throw DouyinPublishError.publishTimeout
+            } catch let err as DouyinPublishError {
+                throw err
+            } catch {
+                log(.warning, "AI 点击发布按钮失败，回退到旧逻辑: \(error.localizedDescription)")
+            }
+        }
+
+        // Fallback：JS 按钮查找逻辑
         let _ = try await cdp.evaluate("(function(){var b=document.querySelectorAll('button');for(var i=0;i<b.length;i++){if(b[i].textContent.trim()==='发布'){b[i].click();return'ok'}}return'no'})()")
 
         let start = Date()
