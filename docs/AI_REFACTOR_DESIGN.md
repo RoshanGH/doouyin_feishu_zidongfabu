@@ -268,18 +268,32 @@ AI 看到截图后会自动识别弹窗类型并给出操作：
 - **验证码**：AI 识别到验证码 → 返回 `waitForUser`
 - **登录过期**：AI 看到登录页 → 返回 `error`
 
-## 六、Claude Vision API 集成
+## 六、AI API 集成
 
-### 6.1 API 调用
+### 6.1 API 配置
+
+使用 OpenAI 兼容的转发服务，国内直连无需 VPN：
+
+```
+Base URL:  https://apicn.unifyllm.top/v1
+API Key:   在设置页配置（存 secrets/ 目录）
+模型:      claude-sonnet-4-6（推荐，视觉能力强、性价比高）
+格式:      OpenAI chat/completions 兼容
+```
+
+### 6.2 API 调用（Swift 实现）
 
 ```swift
-struct ClaudeVisionService {
+struct AIVisionService {
+    let baseURL: String   // https://apicn.unifyllm.top/v1
     let apiKey: String
-    let model = "claude-sonnet-4-6"  // 视觉任务用 Sonnet 性价比最高
+    let model: String     // claude-sonnet-4-6
 
+    /// 发送截图给 AI，获取操作指令
     func analyze(screenshot: Data, prompt: String) async throws -> AIAction {
         let base64Image = screenshot.base64EncodedString()
 
+        // OpenAI 兼容格式
         let requestBody: [String: Any] = [
             "model": model,
             "max_tokens": 1024,
@@ -288,11 +302,9 @@ struct ClaudeVisionService {
                     "role": "user",
                     "content": [
                         [
-                            "type": "image",
-                            "source": [
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": base64Image
+                            "type": "image_url",
+                            "image_url": [
+                                "url": "data:image/png;base64,\(base64Image)"
                             ]
                         ],
                         [
@@ -304,26 +316,41 @@ struct ClaudeVisionService {
             ]
         ]
 
-        // POST https://api.anthropic.com/v1/messages
+        // POST {baseURL}/chat/completions
+        // Headers: Authorization: Bearer {apiKey}
         // 解析返回的 JSON 操作指令
     }
 }
 ```
 
-### 6.2 成本估算
+### 6.3 设置页配置项
 
-| 操作 | 截图次数 | Token 消耗 | 单价（Sonnet） | 费用/条 |
-|------|---------|-----------|---------------|--------|
-| 视频发布 | ~15 次 | ~30K tokens | $3/M input | ~$0.09 |
-| 图文发布 | ~12 次 | ~25K tokens | $3/M input | ~$0.075 |
-| **日均 50 条** | | | | **~$4.5/天** |
+| 设置项 | 说明 | 默认值 |
+|--------|------|--------|
+| AI API 地址 | OpenAI 兼容的 API 转发地址 | `https://apicn.unifyllm.top/v1` |
+| AI API Key | API 密钥 | （用户填写，存 secrets/） |
+| AI 模型 | 使用的模型名称 | `claude-sonnet-4-6` |
+| AI 模式 | 关闭 / 仅弹窗检测 / 完整 AI 驱动 | 仅弹窗检测 |
 
-### 6.3 优化策略
+> API Key 存在 `secrets/ai_api_key`，和飞书 PAT 一样的存储方式。
+> 同事使用时，管理员在每台电脑的设置页填入同一个 Key 即可。
 
-1. **缓存常见页面状态**：相同状态不重复调用 AI（如"正在上传中"页面，只需第一次识别）
-2. **Haiku 预筛选**：用 Haiku 做第一轮快速判断（页面状态分类），只在复杂情况下调用 Sonnet
-3. **本地规则优先**：明确的简单判断仍用本地代码（如 URL 变化检测上传完成），AI 只处理复杂场景
-4. **批量截图压缩**：降低截图分辨率（1280→640），减少 token 消耗
+### 6.4 成本估算
+
+| 操作 | 截图次数 | Token 消耗 | 费用/条（估算） |
+|------|---------|-----------|----------------|
+| 视频发布（混合模式） | ~8 次 | ~20K tokens | ~$0.05 |
+| 图文发布（混合模式） | ~6 次 | ~15K tokens | ~$0.04 |
+| **日均 50 条** | | | **~$2.5/天** |
+
+> 混合模式下 AI 只在需要时调用（弹窗检测、按钮定位），比纯 AI 模式便宜 50%。
+
+### 6.5 优化策略
+
+1. **本地规则优先**：URL 导航、文件上传、键盘输入等确定性操作不调 AI
+2. **截图压缩**：降低分辨率（1280→640），JPEG 压缩到 60% 质量，减少 token
+3. **页面状态缓存**：连续截图相似度 > 95% 时复用上次 AI 判断
+4. **快速模型预筛**：用便宜的模型做状态分类，复杂场景再用 Sonnet
 
 ## 七、混合架构（推荐）
 
@@ -371,15 +398,25 @@ struct ClaudeVisionService {
 
 在设置页新增"AI 配置"区域：
 
-| 设置项 | 说明 |
-|--------|------|
-| Claude API Key | 用户自己的 Anthropic API Key |
-| AI 模式 | 纯 AI / 混合模式 / 关闭（回退到旧方案） |
-| 模型选择 | Haiku（快速便宜）/ Sonnet（推荐）/ Opus（最强） |
+| 设置项 | 默认值 | 说明 |
+|--------|--------|------|
+| API 转发地址 | `https://apicn.unifyllm.top/v1` | OpenAI 兼容的 API 地址，国内直连 |
+| API Key | （必填） | 管理员配置，同事共用 |
+| 模型名称 | `claude-sonnet-4-6` | 支持 Claude/GPT 等任何 Vision 模型 |
+| AI 模式 | 仅弹窗检测 | 关闭 / 仅弹窗检测 / 完整 AI 驱动 |
 
 ### 8.2 API Key 存储
 
-存储在 `secrets/` 目录（与飞书 PAT 相同的加密方式），key: `claude_api_key`。
+- 存储在 `secrets/ai_api_key`（与飞书 PAT 相同的本地文件加密方式）
+- API 转发地址和模型名称存在 `settings.json`（非敏感信息）
+- 管理员在每台电脑上配置一次即可，更新 App 不丢失
+
+### 8.3 同事使用方式
+
+1. 管理员注册 unifyllm.com，充值获取 API Key
+2. 在每台同事电脑的 App 设置页填入 API 地址和 Key
+3. 所有人共用同一个 Key 和额度
+4. 月费用约 $50-80（50 条/天）
 
 ## 九、迁移策略
 
@@ -403,7 +440,8 @@ struct ClaudeVisionService {
 | 风险 | 影响 | 对策 |
 |------|------|------|
 | API 调用延迟（2-5s/次） | 发布速度变慢 | 混合架构：简单操作不调 AI |
-| API 费用 | 日均 $4-5 | 用 Haiku 预筛 + 缓存优化 |
-| AI 幻觉（返回错误坐标） | 点击错位 | 操作后截图验证，错误时重试 |
-| API 不可用 | 无法发布 | 保留旧方案作为 fallback |
-| 截图隐私 | 页面内容发送到 API | 用户知情同意，API Key 自管 |
+| API 费用 | 日均 $2-5 | 混合模式 + 截图压缩，只在需要时调 AI |
+| AI 幻觉（返回错误坐标） | 点击错位 | 操作后截图验证，错误时重试（最多 3 次） |
+| 转发服务不可用 | 无法使用 AI | 保留旧方案作为 fallback，AI 关闭时回退 |
+| 截图隐私 | 页面内容发送到转发服务 | 用户知情同意，Key 自管，可随时关闭 AI |
+| 转发服务换地址 | API 不通 | 设置页可自定义 API 地址，用户可随时切换 |
