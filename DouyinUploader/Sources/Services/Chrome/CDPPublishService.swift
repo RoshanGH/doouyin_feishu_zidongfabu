@@ -669,23 +669,25 @@ final class CDPPublishService {
     private func setCover(cdp: CDPClient, aiAgent: AIAgent? = nil) async {
         log(.info, "设置封面...")
 
-        // AI 模式：让 AI 定位「选择封面」按钮
+        // AI 模式：AI 点「选择封面」打开弹窗，「完成」按钮用 JS 匹配（弹窗内结构稳定）
         if let agent = aiAgent, settings.aiMode == .full {
             do {
                 try await agent.safeClick(
-                    elementDescription: "找到页面上的「选择封面」按钮（不是「设置封面」标题），返回按钮的中心坐标",
-                    verifyDescription: "封面设置弹窗已打开，能看到封面编辑界面"
+                    elementDescription: "找到页面上的「选择封面」按钮（竖封面或横封面都行，不是「设置封面」标题文字），返回按钮区域的中心坐标",
+                    verifyDescription: "封面设置弹窗已打开"
                 )
-                try await Task.sleep(nanoseconds: 2_000_000_000)
+                log(.info, "AI 成功点击「选择封面」，等待弹窗加载...")
+                try await Task.sleep(nanoseconds: 3_000_000_000)
 
-                // AI 找「完成」按钮
-                try await agent.safeClick(
-                    elementDescription: "找到封面设置弹窗底部的「完成」按钮",
-                    verifyDescription: "封面弹窗已关闭"
-                )
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-                log(.info, "封面设置完成（AI）")
-                return
+                // 弹窗内的「完成」按钮用 JS 匹配（比 AI 更快更准）
+                let clicked = (try? await clickButtonByText(cdp: cdp, text: "完成", maxWait: 5)) ?? false
+                if clicked {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    log(.info, "封面设置完成（AI + JS）")
+                    return
+                } else {
+                    log(.warning, "AI 打开了封面弹窗但找不到「完成」按钮")
+                }
             } catch {
                 log(.warning, "AI 封面设置失败，回退到旧逻辑: \(error.localizedDescription)")
             }
@@ -733,26 +735,55 @@ final class CDPPublishService {
             return
         }
 
-        // 2. 等待 2 秒让弹窗加载
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        // 2. 等待 3 秒让弹窗加载
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
 
-        // 3. 在弹窗中点击「完成」按钮
-        let coverResult = (try? await cdp.evaluate("""
-            (function(){
-                var buttons = document.querySelectorAll('button');
-                for (var i = 0; i < buttons.length; i++) {
-                    if (buttons[i].textContent.trim() === '完成') {
-                        buttons[i].click();
-                        return 'clicked';
-                    }
-                }
-                return 'not_found';
-            })()
-        """) as? String) ?? "error"
-        log(.info, "封面完成按钮: \(coverResult)")
+        // 3. 在弹窗中点击「完成」按钮（用坐标点击）
+        let clicked = (try? await clickButtonByText(cdp: cdp, text: "完成", maxWait: 5)) ?? false
+        log(.info, "封面完成按钮: \(clicked ? "clicked" : "not_found")")
 
         // 4. 等待 1 秒让弹窗关闭
         try? await Task.sleep(nanoseconds: 1_000_000_000)
+    }
+
+    // MARK: - 通用按钮点击
+
+    /// 在页面中按文字找到 button 并点击（用坐标点击，比 JS click 更可靠）
+    /// - Returns: 是否成功点击
+    @discardableResult
+    private func clickButtonByText(cdp: CDPClient, text: String, maxWait: Int = 3) async throws -> Bool {
+        for _ in 0..<maxWait {
+            let coordStr = (try? await cdp.evaluate("""
+                (function(){
+                    var buttons = document.querySelectorAll('button, [role="button"]');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim() === '\(text)') {
+                            var r = buttons[i].getBoundingClientRect();
+                            if (r.width > 0 && r.height > 0) {
+                                return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
+                            }
+                        }
+                    }
+                    return '';
+                })()
+            """) as? String) ?? ""
+
+            if !coordStr.isEmpty,
+               let data = coordStr.data(using: .utf8),
+               let coord = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let x = coord["x"] as? Double, let y = coord["y"] as? Double {
+                log(.info, "点击「\(text)」按钮: (\(Int(x)), \(Int(y)))")
+                let _ = try? await cdp.send("Input.dispatchMouseEvent", params: [
+                    "type": "mousePressed", "x": Int(x), "y": Int(y), "button": "left", "clickCount": 1
+                ])
+                let _ = try? await cdp.send("Input.dispatchMouseEvent", params: [
+                    "type": "mouseReleased", "x": Int(x), "y": Int(y), "button": "left", "clickCount": 1
+                ])
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        return false
     }
 
     // MARK: - 定时发布
