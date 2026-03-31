@@ -235,15 +235,16 @@ final class ExecutionViewModel: ObservableObject {
     private let cookieManager: DouyinCookieManager
     private let publishService: DouyinPublishServiceProtocol
     private let logStore: LogStore
-    private lazy var cdpPublishService: CDPPublishService = {
-        let svc = CDPPublishService(cookieManager: cookieManager)
+    /// 每次执行时重新创建（确保读取最新 settings，包括 AI 配置）
+    private func createPublishService() -> CDPPublishService {
+        let svc = CDPPublishService(cookieManager: cookieManager, settings: SettingsManager().load())
         svc.onLog = { [weak self] level, message in
             Task { @MainActor in
                 self?.addLog(level: level, message: message)
             }
         }
         return svc
-    }()
+    }
 
     /// 当前执行 Task（用于取消）
     private var executionTask: Task<Void, Never>?
@@ -501,6 +502,8 @@ final class ExecutionViewModel: ObservableObject {
         executionLog = log
 
         addLog(level: .info, message: "=== 开始执行，共 \(validTasks.count) 条任务 ===")
+
+        let cdpPublishService = createPublishService()
 
         executionTask = Task {
             // 按账号分组（同一账号的任务在一个浏览器中完成）
@@ -762,7 +765,8 @@ final class ExecutionViewModel: ObservableObject {
                 addLog(level: .info, message: "搜索音乐「\(task.musicName ?? "")」", taskIndex: index, account: account)
             }
             addLog(level: .info, message: "正在发布到抖音（CDP）...", taskIndex: index, account: account)
-            let result = try await cdpPublishService.publishTask(task: task, localFiles: localFiles)
+            let svc = createPublishService()
+            let result = try await svc.publishTask(task: task, localFiles: localFiles)
 
             if result.success {
                 addLog(
