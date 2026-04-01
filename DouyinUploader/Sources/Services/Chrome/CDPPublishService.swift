@@ -475,8 +475,13 @@ final class CDPPublishService {
         try await sleep()
         try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
-        // 7. 设置封面
-        await setCover(cdp: cdp, aiAgent: aiAgent)
+        // 7. 设置封面（失败则截图诊断 + 抛错阻断发布）
+        let coverOk = await setCover(cdp: cdp, aiAgent: aiAgent)
+        if !coverOk {
+            // 截图保存到本地，方便排查
+            await saveDebugScreenshot(cdp: cdp, name: "cover_failed")
+            throw DouyinPublishError.publishFailed("设置封面失败，诊断截图已保存到 debug-logs/")
+        }
         try await sleep()
         try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
@@ -665,8 +670,10 @@ final class CDPPublishService {
 
     // MARK: - 设置封面
 
-    /// 点击「选择封面」或「设置封面」→ 等弹窗加载 → 点击「完成」
-    private func setCover(cdp: CDPClient, aiAgent: AIAgent? = nil) async {
+    /// 点击「选择封面」→ 等弹窗加载 → 点击「完成」
+    /// - Returns: 是否成功设置封面
+    @discardableResult
+    private func setCover(cdp: CDPClient, aiAgent: AIAgent? = nil) async -> Bool {
         log(.info, "设置封面...")
 
         // AI 模式：AI 点「选择封面」打开弹窗，「完成」按钮用 JS 匹配（弹窗内结构稳定）
@@ -684,7 +691,7 @@ final class CDPPublishService {
                 if clicked {
                     try await Task.sleep(nanoseconds: 1_000_000_000)
                     log(.info, "封面设置完成（AI + JS）")
-                    return
+                    return true
                 } else {
                     log(.warning, "AI 打开了封面弹窗但找不到「完成」按钮")
                 }
@@ -715,8 +722,8 @@ final class CDPPublishService {
         """) as? String) ?? ""
 
         if coordStr.isEmpty {
-            log(.warning, "未找到封面按钮，跳过")
-            return
+            log(.warning, "未找到封面按钮")
+            return false
         }
 
         // 解析坐标并模拟鼠标点击
@@ -731,8 +738,8 @@ final class CDPPublishService {
                 "type": "mouseReleased", "x": Int(x), "y": Int(y), "button": "left", "clickCount": 1
             ])
         } else {
-            log(.warning, "封面按钮坐标解析失败，跳过")
-            return
+            log(.warning, "封面按钮坐标解析失败")
+            return false
         }
 
         // 2. 等待 3 秒让弹窗加载
@@ -744,6 +751,7 @@ final class CDPPublishService {
 
         // 4. 等待 1 秒让弹窗关闭
         try? await Task.sleep(nanoseconds: 1_000_000_000)
+        return clicked
     }
 
     // MARK: - 通用按钮点击
@@ -912,5 +920,27 @@ final class CDPPublishService {
 
     private func log(_ level: LogLevel, _ message: String) {
         onLog?(level, message)
+    }
+
+    /// 保存诊断截图到 debug-logs/ 目录
+    private func saveDebugScreenshot(cdp: CDPClient, name: String) async {
+        do {
+            let result = try await cdp.send("Page.captureScreenshot", params: ["format": "png"])
+            guard let base64 = (result["result"] as? [String: Any])?["data"] as? String,
+                  let data = Data(base64Encoded: base64) else { return }
+
+            let fallback = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support")
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fallback
+            let debugDir = appSupport.appendingPathComponent("com.menggang.douyin-uploader/debug-logs", isDirectory: true)
+            try? FileManager.default.createDirectory(at: debugDir, withIntermediateDirectories: true)
+
+            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let fileURL = debugDir.appendingPathComponent("\(name)_\(timestamp).png")
+            try data.write(to: fileURL)
+            log(.info, "诊断截图已保存: \(fileURL.lastPathComponent)")
+        } catch {
+            log(.warning, "截图保存失败: \(error.localizedDescription)")
+        }
     }
 }
