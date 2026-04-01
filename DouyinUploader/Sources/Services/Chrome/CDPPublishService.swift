@@ -12,7 +12,7 @@ final class CDPPublishService {
     var onLog: ((LogLevel, String) -> Void)?
 
     /// 操作间隔（秒）
-    private let stepDelay: UInt64 = 2_000_000_000 // 2 秒
+    private let stepDelay: UInt64 = 1_000_000_000 // 1 秒
 
     init(cookieManager: DouyinCookieManager = DouyinCookieManager(), settings: AppSettings = SettingsManager().load()) {
         self.cookieManager = cookieManager
@@ -461,7 +461,7 @@ final class CDPPublishService {
         log(.info, "等待视频处理...")
         try await cdp.waitForURL(containing: "publish", timeout: 180)
         log(.info, "已进入发布信息页")
-        try await sleep(2)
+        try await sleep(1.5)
         try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 5. 填写标题
@@ -519,7 +519,7 @@ final class CDPPublishService {
         // 切换图文模式
         log(.info, "切换到图文发布模式...")
         let _ = try await cdp.evaluate("(function(){var t=document.querySelectorAll('span,div,a');for(var i=0;i<t.length;i++){if(t[i].textContent.trim()==='发布图文'){t[i].click();return'ok'}}return'no'})()")
-        try await sleep(2)
+        try await sleep(1.5)
         try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 上传图片
@@ -533,7 +533,7 @@ final class CDPPublishService {
 
         try await cdp.waitForURL(containing: "publish", timeout: 120)
         log(.info, "已进入发布信息页")
-        try await sleep(2)
+        try await sleep(1.5)
         try await checkVerification(cdp: cdp, aiAgent: aiAgent, accountId: task.douyinAccountId)
 
         // 标题
@@ -684,7 +684,7 @@ final class CDPPublishService {
                     verifyDescription: "封面设置弹窗已打开"
                 )
                 log(.info, "AI 成功点击「选择封面」，等待弹窗加载...")
-                try await Task.sleep(nanoseconds: 3_000_000_000)
+                try await Task.sleep(nanoseconds: 2_000_000_000)
 
                 // 弹窗内的「完成」按钮用 JS 匹配（比 AI 更快更准）
                 let clicked = (try? await clickButtonByText(cdp: cdp, text: "完成", maxWait: 5)) ?? false
@@ -767,8 +767,8 @@ final class CDPPublishService {
             return false
         }
 
-        // 等待弹窗加载（3 秒）
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        // 等待弹窗加载（2 秒）
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
 
         // 点击「完成」按钮（多策略）
         var completeBtnClicked = (try? await clickButtonByText(cdp: cdp, text: "完成", maxWait: 5)) ?? false
@@ -963,7 +963,7 @@ final class CDPPublishService {
 
     // MARK: - 工具
 
-    private func sleep(_ seconds: Double = 2.0) async throws {
+    private func sleep(_ seconds: Double = 1.0) async throws {
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 
