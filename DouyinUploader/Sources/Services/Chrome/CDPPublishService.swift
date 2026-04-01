@@ -700,58 +700,107 @@ final class CDPPublishService {
             }
         }
 
-        // Fallback：JS 坐标定位逻辑
-        // 1. 找到「选择封面」的坐标，用 CDP 鼠标点击（比 JS click 更可靠）
-        let coordStr = (try? await cdp.evaluate("""
+        // Fallback：多策略逐个尝试点击封面卡片
+        // 封面区域是两个大卡片（竖封面/横封面），里面有缩略图+「选择封面」文字
+        let coverClicked = (try? await cdp.evaluate("""
             (function(){
-                var all = document.querySelectorAll('*');
-                var best = null;
-                for (var i = 0; i < all.length; i++) {
-                    var t = all[i].textContent.trim();
-                    if (t === '选择封面') {
-                        var r = all[i].getBoundingClientRect();
-                        if (r.width > 0 && r.height > 0 && r.width < 200) {
-                            if (!best || r.width < best.w) {
-                                best = {x: r.x + r.width/2, y: r.y + r.height/2, w: r.width};
+                // 策略1：找包含「选择封面」文字的可点击区域（往上找到卡片容器）
+                var spans = document.querySelectorAll('span, div, p');
+                for (var i = 0; i < spans.length; i++) {
+                    if (spans[i].textContent.trim() === '选择封面') {
+                        // 往上找合适大小的父容器（封面卡片通常 100-300px 宽）
+                        var el = spans[i];
+                        for (var j = 0; j < 8; j++) {
+                            if (!el.parentElement) break;
+                            el = el.parentElement;
+                            var r = el.getBoundingClientRect();
+                            if (r.width > 80 && r.width < 400 && r.height > 80) {
+                                el.click();
+                                return 'clicked_parent_' + j;
+                            }
+                        }
+                        // 没找到合适父容器，直接点文字本身
+                        spans[i].click();
+                        return 'clicked_text';
+                    }
+                }
+
+                // 策略2：找「设置封面」标题旁边的第一个可点击图片区域
+                var allEls = document.querySelectorAll('*');
+                for (var k = 0; k < allEls.length; k++) {
+                    var t = allEls[k].textContent.trim();
+                    if (t === '设置封面' && allEls[k].childElementCount === 0) {
+                        // 找到标题后，找同级或下级的第一个大区域
+                        var parent = allEls[k].parentElement;
+                        if (parent) {
+                            var children = parent.querySelectorAll('div, a');
+                            for (var m = 0; m < children.length; m++) {
+                                var cr = children[m].getBoundingClientRect();
+                                if (cr.width > 80 && cr.height > 80 && cr.width < 400) {
+                                    children[m].click();
+                                    return 'clicked_sibling';
+                                }
                             }
                         }
                     }
                 }
-                return best ? JSON.stringify({x: best.x, y: best.y}) : '';
+
+                // 策略3：找页面中「竖封面」或「横封面」文字附近的可点击区域
+                for (var n = 0; n < allEls.length; n++) {
+                    var txt = allEls[n].textContent.trim();
+                    if ((txt === '竖封面3:4' || txt === '横封面4:3') && allEls[n].childElementCount === 0) {
+                        var p = allEls[n].parentElement;
+                        if (p) {
+                            p.click();
+                            return 'clicked_ratio_label';
+                        }
+                    }
+                }
+
+                return 'not_found';
             })()
-        """) as? String) ?? ""
+        """) as? String) ?? "error"
+        log(.info, "封面点击结果: \(coverClicked)")
 
-        if coordStr.isEmpty {
-            log(.warning, "未找到封面按钮")
+        if coverClicked.contains("not_found") {
+            log(.warning, "所有策略都未找到封面按钮")
             return false
         }
 
-        // 解析坐标并模拟鼠标点击
-        if let data = coordStr.data(using: .utf8),
-           let coord = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let x = coord["x"] as? Double, let y = coord["y"] as? Double {
-            log(.info, "点击「选择封面」坐标: (\(Int(x)), \(Int(y)))")
-            let _ = try? await cdp.send("Input.dispatchMouseEvent", params: [
-                "type": "mousePressed", "x": Int(x), "y": Int(y), "button": "left", "clickCount": 1
-            ])
-            let _ = try? await cdp.send("Input.dispatchMouseEvent", params: [
-                "type": "mouseReleased", "x": Int(x), "y": Int(y), "button": "left", "clickCount": 1
-            ])
-        } else {
-            log(.warning, "封面按钮坐标解析失败")
-            return false
-        }
-
-        // 2. 等待 3 秒让弹窗加载
+        // 等待弹窗加载（3 秒）
         try? await Task.sleep(nanoseconds: 3_000_000_000)
 
-        // 3. 在弹窗中点击「完成」按钮（用坐标点击）
-        let clicked = (try? await clickButtonByText(cdp: cdp, text: "完成", maxWait: 5)) ?? false
-        log(.info, "封面完成按钮: \(clicked ? "clicked" : "not_found")")
+        // 点击「完成」按钮（多策略）
+        var completeBtnClicked = (try? await clickButtonByText(cdp: cdp, text: "完成", maxWait: 5)) ?? false
 
-        // 4. 等待 1 秒让弹窗关闭
+        // 如果 clickButtonByText 失败，再试 JS click
+        if !completeBtnClicked {
+            let jsResult = (try? await cdp.evaluate("""
+                (function(){
+                    var btns = document.querySelectorAll('button, [role="button"]');
+                    for (var i = 0; i < btns.length; i++) {
+                        var t = btns[i].textContent.trim();
+                        if (t === '完成') { btns[i].click(); return 'js_clicked'; }
+                    }
+                    // 也试试 span/div 包裹的按钮
+                    var all = document.querySelectorAll('span, div');
+                    for (var j = 0; j < all.length; j++) {
+                        if (all[j].textContent.trim() === '完成' && all[j].childElementCount === 0) {
+                            all[j].click();
+                            if (all[j].parentElement) all[j].parentElement.click();
+                            return 'js_clicked_span';
+                        }
+                    }
+                    return 'not_found';
+                })()
+            """) as? String) ?? "error"
+            completeBtnClicked = jsResult.contains("clicked")
+            log(.info, "完成按钮备用策略: \(jsResult)")
+        }
+
+        log(.info, "封面完成按钮: \(completeBtnClicked ? "成功" : "失败")")
         try? await Task.sleep(nanoseconds: 1_000_000_000)
-        return clicked
+        return completeBtnClicked
     }
 
     // MARK: - 通用按钮点击
